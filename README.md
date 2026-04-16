@@ -1,11 +1,17 @@
 # patsight-cli
 
-`patsight-cli` is a Python package that provides:
+patsight-cli is a command-line tool designed for PatSight scenarios, used to interface with PatSight's patent PDF extraction capabilities. The built-in patsight Client is specifically tailored for PatSight's patent PDF extraction scenarios, helping users complete the entire process from login, task submission to result retrieval in the terminal.
+For ordinary users, PatSight CLI can be understood as the command-line operation entry of PatSight, mainly used for:
+- Log in using your PatSight account email and password
+- Submit the patent PDF file and initiate the extraction task
+- Query task processing progress and status
+- Directly obtain the extraction results and export them as CSV 
+- Generate a summary report in HTML format
+- Log in to the PatSight page as needed, and manually verify tasks and results.
 
-- A **command-line tool** (`patsight-cli`) for pluggable **remote job clients**.
-- A **library** (`import patsight_cli`) with the same clients and registry.
+Tasks submitted by PatSight CLI will enter PatSight's task list and remain consistent with the tasks on the page; task execution will consume corresponding Credits points. After the task is completed, users can either directly obtain the results through CLI and continue with subsequent processing, or log in to the PatSight page for further viewing and verification.
 
-The built-in client **`patsight`** talks to the PatSight patent extraction HTTP API (login, submit PDF jobs, poll status, export CSV, HTML summary). Additional backends can register with `ClientRegistry`.
+The tool uses the  patsight  Client by default, so in most scenarios, simply entering  patsight-cli  is sufficient; if you need to explicitly specify it, you can also add the parameter  --client patsight . 
 
 ## Requirements
 
