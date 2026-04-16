@@ -12,10 +12,15 @@ from typing import Optional
 
 
 def _default_db_path() -> str:
-    raw = (os.environ.get("XCLI_CLIENT_DB") or os.environ.get("PATSIGHT_CLIENT_DB") or "").strip()
+    raw = (
+        os.environ.get("PATSIGHT_CLI_CLIENT_DB")
+        or os.environ.get("XCLI_CLIENT_DB")
+        or os.environ.get("PATSIGHT_CLIENT_DB")
+        or ""
+    ).strip()
     if raw:
         return os.path.expanduser(raw)
-    return str(Path.home() / ".local" / "share" / "xcli" / "tasks.db")
+    return str(Path.home() / ".local" / "share" / "patsight-cli" / "tasks.db")
 
 
 def utcnow() -> str:

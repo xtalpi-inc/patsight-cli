@@ -9,15 +9,15 @@ from typing import Any
 
 from dotenv import find_dotenv, load_dotenv
 
-import xcli.clients  # noqa: F401 — register built-in clients
-from xcli.base import RemoteJobClient
-from xcli.clients.patsight import CLI_JOB_TYPE_CHOICES, PatSightClient
-from xcli.config import load_yaml_config, merge_client_kwargs, resolve_profile
-from xcli.exceptions import ClientError
-from xcli.logging_utils import setup_logging
-from xcli.registry import ClientRegistry
-from xcli.reporting.html import generate_patsight_report
-from xcli.store import JobStore
+import patsight_cli.clients  # noqa: F401 — register built-in clients
+from patsight_cli.base import RemoteJobClient
+from patsight_cli.clients.patsight import CLI_JOB_TYPE_CHOICES, PatSightClient
+from patsight_cli.config import load_yaml_config, merge_client_kwargs, resolve_profile
+from patsight_cli.exceptions import ClientError
+from patsight_cli.logging_utils import setup_logging
+from patsight_cli.registry import ClientRegistry
+from patsight_cli.reporting.html import generate_patsight_report
+from patsight_cli.store import JobStore
 
 _env = find_dotenv()
 if _env and os.path.isfile(_env):
@@ -178,8 +178,8 @@ def cmd_report(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="xcli",
-        description="xcli: unified CLI for registered remote-job clients (built-in: patsight — PatSight patent extraction).",
+        prog="patsight-cli",
+        description="patsight-cli: unified CLI for registered remote-job clients (built-in: patsight — PatSight patent extraction).",
     )
     parser.add_argument("--config", help="YAML config with profiles (optional)")
     parser.add_argument("--profile", help="Profile name inside config")

@@ -265,7 +265,7 @@ a:hover {{ text-decoration:underline; }}
   <div class="card"><div class="label">View online</div><div class="value">{link_html}</div></div>
 </div>
 </div>
-<div class="footer">xcli · PatSight task summary</div>
+<div class="footer">patsight-cli · PatSight task summary</div>
 </div>
 </div>
 </body>

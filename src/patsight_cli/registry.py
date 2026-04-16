@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, Type
 
-from xcli.exceptions import RegistryError
+from patsight_cli.exceptions import RegistryError
 
 if TYPE_CHECKING:
-    from xcli.base import RemoteJobClient
+    from patsight_cli.base import RemoteJobClient
 
 
 class ClientRegistry:

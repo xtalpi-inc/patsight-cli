@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 import yaml
 
-from xcli.exceptions import ConfigError
+from patsight_cli.exceptions import ConfigError
 
 
 def load_yaml_config(path: str | None) -> Dict[str, Any]:

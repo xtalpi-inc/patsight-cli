@@ -4,8 +4,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from xcli.models import JobResult, JobStatus, JobSubmission
-from xcli.registry import ClientRegistry
+from patsight_cli.models import JobResult, JobStatus, JobSubmission
+from patsight_cli.registry import ClientRegistry
 
 
 class RemoteJobClient(ABC):

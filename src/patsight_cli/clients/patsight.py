@@ -14,17 +14,17 @@ from urllib.parse import urlparse
 import requests
 from requests import Response, Session
 
-from xcli.base import RemoteJobClient
-from xcli.exceptions import (
+from patsight_cli.base import RemoteJobClient
+from patsight_cli.exceptions import (
     FetchResultError,
     JobNotFoundError,
     LoginError,
     QueryError,
     SubmitError,
 )
-from xcli.models import JobResult, JobStatus as RemoteJobStatus
-from xcli.registry import ClientRegistry
-from xcli.store import JobStatusEnum
+from patsight_cli.models import JobResult, JobStatus as RemoteJobStatus
+from patsight_cli.registry import ClientRegistry
+from patsight_cli.store import JobStatusEnum
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +55,15 @@ def ops_verify_endpoint(ops_origin: str) -> str:
 
 
 def _default_workdir() -> str:
-    raw = (os.environ.get("XCLI_WORKDIR") or os.environ.get("PATSIGHT_WORKDIR") or "").strip()
+    raw = (
+        os.environ.get("PATSIGHT_CLI_WORKDIR")
+        or os.environ.get("XCLI_WORKDIR")
+        or os.environ.get("PATSIGHT_WORKDIR")
+        or ""
+    ).strip()
     if raw:
         return os.path.expanduser(raw)
-    return str(Path.home() / ".local" / "share" / "xcli" / "output")
+    return str(Path.home() / ".local" / "share" / "patsight-cli" / "output")
 
 
 DEFAULT_WORKDIR = _default_workdir()
@@ -158,7 +163,7 @@ class PatSightConfig:
     timeout_read: float = 180.0
     max_retries: int = 5
     backoff_base: float = 1.2
-    user_agent: str = "xcli/0.1 (patsight)"
+    user_agent: str = "patsight-cli/0.1 (patsight)"
     create_job_poll_interval: float = 3.0
     create_job_poll_attempts: int = 15
     list_tasks_per_page: int = 50

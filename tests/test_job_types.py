@@ -1,5 +1,5 @@
-import xcli  # noqa: F401
-from xcli.clients.patsight import (
+import patsight_cli  # noqa: F401
+from patsight_cli.clients.patsight import (
     JOB_TYPE_TO_API_ACTION,
     api_action_to_job_type,
     job_type_to_api_action,

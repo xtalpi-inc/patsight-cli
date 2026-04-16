@@ -1,4 +1,4 @@
-# Example profile for `xcli --config profile.yaml --profile prod <command>`
+# Example profile for `patsight-cli --config profile.yaml --profile prod <command>`
 # Prefer env PATSIGHT_URL + OPS_URL; use params below to override per profile.
 
 profiles:
