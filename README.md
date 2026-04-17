@@ -10,9 +10,7 @@ For ordinary users, PatSight CLI can be understood as the command-line operation
 - Log in to the PatSight page as needed, and manually verify tasks and results.
 
 Tasks submitted by PatSight CLI will enter PatSight's task list and remain consistent with the tasks on the page; task execution will consume corresponding Credits points. After the task is completed, users can either directly obtain the results through CLI and continue with subsequent processing, or log in to the PatSight page for further viewing and verification.
-
-The tool uses the  patsight  Client by default, so in most scenarios, simply entering  patsight-cli  is sufficient; if you need to explicitly specify it, you can also add the parameter  --client patsight . 
-
+ 
 ## Requirements
 
 - **Python** 3.11 or newer
