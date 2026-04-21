@@ -1,15 +1,12 @@
 # patsight-cli
 
-patsight-cli is a command-line tool designed for PatSight scenarios, used to interface with PatSight's patent PDF extraction capabilities. The built-in patsight Client is specifically tailored for PatSight's patent PDF extraction scenarios, helping users complete the entire process from login, task submission to result retrieval in the terminal.
-For ordinary users, PatSight CLI can be understood as the command-line operation entry of PatSight, mainly used for:
-- Log in using your PatSight account email and password
-- Submit the patent PDF file and initiate the extraction task
-- Query task processing progress and status
-- Directly obtain the extraction results and export them as CSV 
-- Generate a summary report in HTML format
-- Log in to the PatSight page as needed, and manually verify tasks and results.
+patsight-cli  is a command-line tool used to submit and query PatSight patent PDF extraction tasks. Users can perform operations such as logging in, task submission, status query, result retrieval, and report generation through the terminal. Tasks submitted via patsight-cli  will be synchronously added to PatSight's task list and consume the corresponding Credits points according to the rules.After the task is completed, users can either directly obtain the results via the CLI and continue with subsequent processing, or log in to the PatSight page for viewing and verification. 
 
-Tasks submitted by PatSight CLI will enter PatSight's task list and remain consistent with the tasks on the page; task execution will consume corresponding Credits points. After the task is completed, users can either directly obtain the results through CLI and continue with subsequent processing, or log in to the PatSight page for further viewing and verification.
+ Applicable scenarios include:
+
+- Submit patent PDFs individually or in batches
+- Obtain CSV results for subsequent analysis 
+- Generate HTML reports that are easy to read and share
  
 ## Requirements
 
