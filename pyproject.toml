@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "patsight-cli"
+version = "0.1.0"
+description = "patsight-cli: multi-service CLI with pluggable remote-job clients (PatSight patent extraction included)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Xtalpi" }]
+keywords = ["patsight-cli", "patsight", "patent", "chemistry", "api-client", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Chemistry",
+]
+dependencies = [
+    "requests>=2.31.0",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+patsight-cli = "patsight_cli.cli.main:main"
+
+[project.urls]
+Repository = "https://github.com/xtalpi-inc/patsight-cli"
+Issues = "https://github.com/xtalpi-inc/patsight-cli/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+patsight_cli = ["py.typed"]

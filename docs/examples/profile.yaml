@@ -1,0 +1,12 @@
+# Example profile for `patsight-cli --config profile.yaml --profile prod <command>`
+# Prefer env PATSIGHT_URL + OPS_URL; use params below to override per profile.
+
+profiles:
+  prod:
+    client_type: patsight
+    params:
+      # patsight_url: "https://patent.xinsight-ai.com"
+      # ops_url: "https://xops.xtalpi.com"
+      # Optional explicit overrides (skip derivation):
+      # base_url: "https://patent.xinsight-ai.com/patent/api"
+      folder_id: 0
