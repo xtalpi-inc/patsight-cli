@@ -112,7 +112,8 @@ Optional YAML profiles are documented in `docs/examples/profile.yaml` (`--config
 | `login` | Verify credentials and cache token (PatSight). |
 | `submit` | Submit a job (PatSight: PDF path and `--job-type`). |
 | `status` | Query job status by `--job-id`. |
-| `result` | Fetch finished result and export CSV under workdir. |
+| `result` | Fetch finished result, export file, and include statistics summary. |
+| `export` | Export finished job file only (no statistics). |
 | `report` | Generate HTML summary from live API or `--from-json`. |
 
 PatSight-related flags include `--account`, `--password`, `--token`, `--folder-id`, `--patsight-url`, `--ops-url`, and URL overrides; see `patsight-cli <command> --help`.
@@ -150,9 +151,26 @@ patsight-cli login --client patsight \
 # Same as --client patsight; omitted here because patsight is the default
 patsight-cli submit --pdf-path /path/to/patent.pdf --job-type structureAndActivity
 
+# Limit extraction to specific pages (maps to API pdf_slice)
+patsight-cli submit --pdf-path /path/to/patent.pdf --job-type structureAndActivity --pages "1-5,7,9-12"
+
+# Composite job: semicolon separates page ranges per action
+patsight-cli submit --pdf-path /path/to/patent.pdf --job-type structureAndActivityReaction --pages "1-5,7;9-12,15"
+
 # Explicit client (equivalent when only patsight exists)
 patsight-cli status --client patsight --job-id "<job_id>"
-patsight-cli result --client patsight --job-id "<job_id>"
+
+# Default export: bioactivity CSV for structure/activity jobs
+patsight-cli result --job-id "<job_id>"
+
+# ADMET data as Excel
+patsight-cli result --job-id "<job_id>" --job-type structureAndActivity --export-type admet --format xlsx
+
+# Reaction job: synthesis routes as JSON
+patsight-cli export --job-id "<job_id>" --job-type reaction --format json
+
+# IUPAC job: chemical structures as SDF
+patsight-cli export --job-id "<job_id>" --job-type iupac --format sdf
 
 patsight-cli report --job-id "<job_id>" -o report.html
 patsight-cli report --from-json saved_result.json -o report.html
@@ -182,8 +200,22 @@ client = PatSightClient()
 info = client.submit_job(
     {"pdf_path": "/path/to/patent.pdf", "job_type": "structureAndActivity"}
 )
+
+# Optional page ranges (``pages`` or ``pdf_slice``; empty means all pages)
+info = client.submit_job(
+    {
+        "pdf_path": "/path/to/patent.pdf",
+        "job_type": "structureAndActivity",
+        "pages": "1-5,7,9-12",
+    }
+)
 status = client.query_status(info["job_id"])
-result = client.fetch_result(info["job_id"])
+result = client.fetch_result(
+    info["job_id"],
+    export_type="bioactivity",
+    file_format="csv",
+)
+print(result.output_path)
 ```
 
 `import patsight_cli` registers built-in clients (including `patsight`). If you only import submodules, ensure `import patsight_cli.clients` (or `import patsight_cli`) runs before `ClientRegistry.create("patsight", ...)`.

@@ -16,12 +16,16 @@ from requests import Response, Session
 
 from patsight_cli.base import RemoteJobClient
 from patsight_cli.exceptions import (
+    ExportError,
     FetchResultError,
     JobNotFoundError,
     LoginError,
     QueryError,
     SubmitError,
 )
+from patsight_cli.export_ids import compound_rows_to_export_ids
+from patsight_cli.export_options import resolve_export_options
+from patsight_cli.pdf_slice import resolve_pdf_slice
 from patsight_cli.models import JobResult, JobStatus as RemoteJobStatus
 from patsight_cli.registry import ClientRegistry
 from patsight_cli.store import JobStatusEnum
@@ -336,6 +340,7 @@ class PatSightClient(RemoteJobClient):
         else:
             job_type = "structureAndActivity"
         api_action = job_type_to_api_action(job_type)
+        pdf_slice = resolve_pdf_slice(payload, api_action=api_action)
 
         remote_id = Path(pdf_path).name
         if getattr(self, "job_store", None):
@@ -355,7 +360,12 @@ class PatSightClient(RemoteJobClient):
 
         print(f"Patent id {remote_id} in PatSight job not submitted. Creating new job...")
         try:
-            result = self.create_job(file_path=pdf_path, job_type=job_type, folder_id=folder_id)
+            result = self.create_job(
+                file_path=pdf_path,
+                job_type=job_type,
+                folder_id=folder_id,
+                pdf_slice=pdf_slice,
+            )
             if getattr(self, "job_store", None):
                 try:
                     self.job_store.create_job(
@@ -401,6 +411,8 @@ class PatSightClient(RemoteJobClient):
         job_id: str,
         *,
         job_type: Optional[ResultType] = None,
+        export_type: Optional[str] = None,
+        file_format: Optional[str] = None,
         **kwargs: Any,
     ) -> JobResult:
         try:
@@ -408,9 +420,13 @@ class PatSightClient(RemoteJobClient):
                 job_id=job_id,
                 folder_id=self.folder_id,
                 data_type=job_type,
+                export_type=export_type,
+                file_format=file_format,
             )
         except PatSightJobNotFoundError as exc:
             raise JobNotFoundError(str(exc)) from exc
+        except ExportError:
+            raise
         except Exception as exc:
             raise FetchResultError(f"fetch_result failed for job_id={job_id}: {exc}") from exc
 
@@ -559,9 +575,15 @@ class PatSightClient(RemoteJobClient):
         except requests.RequestException as exc:
             raise PatSightError(f"Failed to upload PDF: {file_path}; error={exc}") from exc
 
-    def create_task(self, pdf_url: str, action: str = "0", folder_id: int = 0) -> Dict[str, Any]:
+    def create_task(
+        self,
+        pdf_url: str,
+        action: str = "0",
+        folder_id: int = 0,
+        pdf_slice: str = "",
+    ) -> Dict[str, Any]:
         payload = {
-            "data": [{"action": action, "pdf_slice": "", "pdf_url": pdf_url}],
+            "data": [{"action": action, "pdf_slice": pdf_slice, "pdf_url": pdf_url}],
             "email_notify": False,
             "folder_id": folder_id,
         }
@@ -584,24 +606,107 @@ class PatSightClient(RemoteJobClient):
         resp = self._request("GET", url, params={"request_id": int(time.time() * 1000)})
         return self._parse_json_response(resp)
 
+    def list_structure_ids(self, task_id: str) -> list[int]:
+        url = f"{self.config.base_url}/v3/extractor/task/{task_id}/structures"
+        resp = self._request("GET", url)
+        data = self._parse_json_response(resp)
+        structures = (data.get("data") or {}).get("structures") or []
+        ids: list[int] = []
+        for item in structures:
+            raw_id = item.get("id")
+            if raw_id is None:
+                continue
+            ids.append(int(raw_id))
+        return ids
+
+    def list_compound_export_ids(
+        self,
+        task_id: str,
+        *,
+        bioactivity_data_type: int,
+        mode: Optional[str] = "properties",
+    ) -> list[Dict[str, Optional[int]]]:
+        """Fetch compound rows from backend and convert to export ``ids`` payload."""
+        url = f"{self.config.base_url}/v3/extractor/task/{task_id}/compounds"
+        params: Dict[str, Any] = {"bioactivity_data_type": bioactivity_data_type}
+        if mode:
+            params["mode"] = mode
+        resp = self._request("GET", url, params=params)
+        data = self._parse_json_response(resp)
+        compounds = (data.get("data") or {}).get("compounds") or []
+        return compound_rows_to_export_ids(compounds)
+
     def export_task(
         self,
         task_id: str,
-        file_type: str = "csv",
-        export_to_molvalley: bool = True,
+        *,
+        job_type: ResultType,
+        export_type: Optional[str] = None,
+        file_format: Optional[str] = None,
     ) -> str:
-        url = f"{self.config.base_url}/v3/extractor/task/{task_id}/export"
+        resolved_type, resolved_format = resolve_export_options(
+            job_type,
+            export_type=export_type,
+            file_format=file_format,
+        )
+
+        if resolved_type == "reactions":
+            url = f"{self.config.base_url}/v3/extractor/task/{task_id}/reactions/export"
+            body = {"file_type": resolved_format, "reaction_ids": []}
+        elif resolved_type == "namedStructures":
+            structure_ids = self.list_structure_ids(task_id)
+            if not structure_ids:
+                raise ExportError(
+                    f"No named structures found for task_id={task_id}; cannot export namedStructures."
+                )
+            url = f"{self.config.base_url}/v3/extractor/task/{task_id}/structures/export"
+            body = {"ids": structure_ids, "file_type": resolved_format}
+        else:
+            if resolved_type == "admet":
+                bioactivity_data_type = 1
+                list_mode = "properties"
+            elif resolved_type == "bioactivity":
+                bioactivity_data_type = 0
+                list_mode = "properties"
+            elif resolved_type == "structures":
+                bioactivity_data_type = 0
+                list_mode = None
+            else:
+                raise ExportError(f"Unsupported export_type for compound export: {resolved_type!r}")
+
+            export_ids = self.list_compound_export_ids(
+                task_id,
+                bioactivity_data_type=bioactivity_data_type,
+                mode=list_mode,
+            )
+            if not export_ids:
+                raise ExportError(
+                    f"No {resolved_type} records found for task_id={task_id}; cannot export."
+                )
+
+            url = f"{self.config.base_url}/v3/extractor/task/{task_id}/export"
+            body = {"file_type": resolved_format, "ids": export_ids}
+            if resolved_type in {"bioactivity", "admet"}:
+                body["bioactivity_data_type"] = bioactivity_data_type
+
         params = {"request_id": int(time.time() * 1000)}
-        body = {"file_type": file_type, "export_to_molvalley": export_to_molvalley}
         resp = self._request("POST", url, params=params, json=body)
-        resp.encoding = resp.encoding or "utf-8"
-        csv_content = resp.text
         Path(self.workdir).mkdir(parents=True, exist_ok=True)
-        out_path = Path(self.workdir) / f"{task_id}_sar_input.csv"
-        out_path.write_text(csv_content, encoding="utf-8")
+        out_path = Path(self.workdir) / f"{task_id}_{resolved_type}.{resolved_format}"
+        if resolved_format in {"xlsx", "sdf"}:
+            out_path.write_bytes(resp.content)
+        else:
+            resp.encoding = resp.encoding or "utf-8"
+            out_path.write_text(resp.text, encoding="utf-8")
         return str(out_path)
 
-    def create_job(self, file_path: str, job_type: ResultType, folder_id: int = 0) -> Dict[str, Any]:
+    def create_job(
+        self,
+        file_path: str,
+        job_type: ResultType,
+        folder_id: int = 0,
+        pdf_slice: str = "",
+    ) -> Dict[str, Any]:
         path = Path(file_path)
         if not path.exists():
             raise FileNotFoundError(f"PDF file not found: {file_path}")
@@ -619,7 +724,12 @@ class PatSightClient(RemoteJobClient):
         if not doc_only_id:
             raise PatSightError(f"Failed to infer doc_only_id from presigned url: {presigned_url}")
 
-        create_payload = self.create_task(pdf_url=pdf_url, action=api_action, folder_id=folder_id)
+        create_payload = self.create_task(
+            pdf_url=pdf_url,
+            action=api_action,
+            folder_id=folder_id,
+            pdf_slice=pdf_slice,
+        )
         task_id = (create_payload.get("data") or {}).get("task_id", "")
         if not task_id:
             raise PatSightError(f"create_task returned no task_id: {create_payload}")
@@ -655,6 +765,7 @@ class PatSightClient(RemoteJobClient):
             "file_path": str(path.resolve()),
             "job_type": job_type,
             "api_action": api_action,
+            "pdf_slice": pdf_slice,
             "folder_id": folder_id,
             "status": initial_status.get("status", "submitted"),
             "site_address": site_address,
@@ -760,6 +871,8 @@ class PatSightClient(RemoteJobClient):
         job_id: str,
         folder_id: Optional[int] = None,
         data_type: Optional[ResultType] = None,
+        export_type: Optional[str] = None,
+        file_format: Optional[str] = None,
     ) -> JobResult:
         target_folder_id = self.folder_id if folder_id is None else folder_id
         if data_type is not None:
@@ -790,7 +903,17 @@ class PatSightClient(RemoteJobClient):
                 resolved_type = api_action_to_job_type(str(task.get("action", "0")))
 
         statistics_info = self.get_task_statistics(str(task_id))
-        csv_output_path = self.export_task(str(task_id), file_type="csv", export_to_molvalley=True)
+        output_path = self.export_task(
+            str(task_id),
+            job_type=resolved_type,
+            export_type=export_type,
+            file_format=file_format,
+        )
+        resolved_export_type, resolved_file_format = resolve_export_options(
+            resolved_type,
+            export_type=export_type,
+            file_format=file_format,
+        )
         data_type_map = {
             "structureAndActivity": "patsight?patsight-app=/view-results/overview?",
             "structureAndActivityReaction": "patsight?patsight-app=/view-results/overview?",
@@ -806,7 +929,9 @@ class PatSightClient(RemoteJobClient):
             "status": status,
             "action": task.get("action", "0"),
             "job_type": resolved_type,
-            "csv_output_path": csv_output_path,
+            "export_type": resolved_export_type,
+            "file_format": resolved_file_format,
+            "output_path": output_path,
             "statistics_info": format_statistics_summary(statistics_info),
             "pdf_pages": task.get("pdf_pages", 0),
             "title": task.get("title", ""),
@@ -818,6 +943,6 @@ class PatSightClient(RemoteJobClient):
         return JobResult(
             job_id=str(job_id),
             result=result,
-            output_path=csv_output_path,
+            output_path=output_path,
             raw=status_payload,
         )

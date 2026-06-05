@@ -92,7 +92,9 @@ def generate_patsight_report(result: Dict[str, Any], output_file: str = "patsigh
     filename = safe(result.get("filename", ""))
     status_raw = str(result.get("status", "") or "")
     job_type = safe(result.get("job_type", ""))
-    csv_output_path = safe(result.get("csv_output_path", ""))
+    csv_output_path = safe(
+        result.get("output_path") or result.get("csv_output_path", "")
+    )
     pdf_pages = safe(result.get("pdf_pages", 0))
     credit_used = safe(result.get("credit_used", 0))
     site_address_raw = str(result.get("site_address", "") or "").strip()

@@ -13,7 +13,7 @@ import patsight_cli.clients  # noqa: F401 — register built-in clients
 from patsight_cli.base import RemoteJobClient
 from patsight_cli.clients.patsight import CLI_JOB_TYPE_CHOICES, PatSightClient
 from patsight_cli.config import load_yaml_config, merge_client_kwargs, resolve_profile
-from patsight_cli.exceptions import ClientError
+from patsight_cli.exceptions import ClientError, ExportError
 from patsight_cli.logging_utils import setup_logging
 from patsight_cli.registry import ClientRegistry
 from patsight_cli.reporting.html import generate_patsight_report
@@ -47,6 +47,8 @@ def load_payload(args: argparse.Namespace) -> Any:
             payload["job_type"] = getattr(args, "job_type", None) or "structureAndActivity"
         if getattr(args, "folder_id", None) is not None:
             payload["folder_id"] = args.folder_id
+        if getattr(args, "pages", None):
+            payload["pages"] = args.pages
         return payload
     return {}
 
@@ -101,6 +103,7 @@ def _print_patsight_submit_hint(submission: dict[str, Any]) -> None:
     job_type = submission.get("job_type", "")
     status = submission.get("status", "submitted")
     site = submission.get("site_address", "")
+    pdf_slice = submission.get("pdf_slice", "")
     lines = [
         "",
         "━━━ PatSight job submitted ━━━",
@@ -109,6 +112,8 @@ def _print_patsight_submit_hint(submission: dict[str, Any]) -> None:
         f"  type: {job_type or '-'}",
         f"  status: {status}",
     ]
+    if pdf_slice:
+        lines.append(f"  pages: {pdf_slice}")
     if site:
         lines.append(f"  view: {site}")
     lines.append("")
@@ -144,17 +149,82 @@ def cmd_status(args: argparse.Namespace) -> None:
     print(json.dumps(to_output_payload(status), ensure_ascii=False, indent=2))
 
 
+def _resolve_result_job_type(client: PatSightClient, args: argparse.Namespace) -> str | None:
+    jt = getattr(args, "job_type", None)
+    if isinstance(jt, str) and jt.strip():
+        return jt.strip()
+    if getattr(args, "job_id", None):
+        status = client.get_job_status_for_job_id(job_id=args.job_id, folder_id=client.folder_id)
+        slug = status.get("job_type")
+        if isinstance(slug, str) and slug.strip():
+            return slug.strip()
+    return None
+
+
 def cmd_result(args: argparse.Namespace) -> None:
     client = create_client_from_args(args)
     client.login()
 
     if isinstance(client, PatSightClient):
-        jt = getattr(args, "job_type", None)
-        result = client.fetch_result(args.job_id, job_type=jt)
+        jt = _resolve_result_job_type(client, args) or getattr(args, "job_type", None)
+        result = client.fetch_result(
+            args.job_id,
+            job_type=jt,
+            export_type=getattr(args, "export_type", None),
+            file_format=getattr(args, "format", None),
+        )
     else:
         result = client.fetch_result(args.job_id)
 
     print(json.dumps(to_output_payload(result), ensure_ascii=False, indent=2))
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    client = create_client_from_args(args)
+    client.login()
+    if not isinstance(client, PatSightClient):
+        raise ClientError("export currently supports PatSight client only")
+
+    jt = _resolve_result_job_type(client, args)
+    if not jt:
+        raise ExportError(
+            "Could not determine job_type. Pass --job-type explicitly for export validation."
+        )
+
+    status = client.get_job_status_for_job_id(job_id=args.job_id, folder_id=client.folder_id)
+    task_status = str(status.get("status") or "").strip().lower()
+    if task_status not in {"done", "completed", "success", "finished"}:
+        raise ExportError(f"Job is not finished: job_id={args.job_id}, status={status.get('status')}")
+
+    task_id = str((status.get("task_info") or status).get("id") or status.get("job_id") or args.job_id)
+    output_path = client.export_task(
+        task_id,
+        job_type=jt,  # type: ignore[arg-type]
+        export_type=getattr(args, "export_type", None),
+        file_format=getattr(args, "format", None),
+    )
+    from patsight_cli.export_options import resolve_export_options
+
+    export_type, file_format = resolve_export_options(
+        jt,
+        export_type=getattr(args, "export_type", None),
+        file_format=getattr(args, "format", None),
+    )
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "job_id": args.job_id,
+                "task_id": task_id,
+                "job_type": jt,
+                "export_type": export_type,
+                "file_format": file_format,
+                "output_path": output_path,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 def cmd_report(args: argparse.Namespace) -> None:
@@ -166,7 +236,12 @@ def cmd_report(args: argparse.Namespace) -> None:
         client.login()
         if not isinstance(client, PatSightClient):
             raise ClientError("report currently supports PatSight client only")
-        jr = client.fetch_result(args.job_id, job_type=getattr(args, "job_type", None))
+        jr = client.fetch_result(
+            args.job_id,
+            job_type=getattr(args, "job_type", None) or _resolve_result_job_type(client, args),
+            export_type=getattr(args, "export_type", None),
+            file_format=getattr(args, "format", None),
+        )
         inner = jr.result if isinstance(jr.result, dict) else {}
     else:
         raise ClientError("report requires --job-id (live fetch) or --from-json")
@@ -174,6 +249,27 @@ def cmd_report(args: argparse.Namespace) -> None:
     out = args.output or "patsight_report.html"
     path = generate_patsight_report(inner, out)
     print(json.dumps({"ok": True, "html_path": path}, ensure_ascii=False, indent=2))
+
+
+def _add_export_flags(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--export-type",
+        default=None,
+        help=(
+            "Export data category. structureAndActivity: bioactivity (default), admet, namedStructures; "
+            "reaction: reactions (default); iupac: structures (default). "
+            "Mismatched job_type/export_type combinations raise an error."
+        ),
+    )
+    p.add_argument(
+        "--format",
+        default=None,
+        dest="format",
+        help=(
+            "Export file format. Defaults: csv for structure/activity and iupac, xlsx for reaction. "
+            "Allowed formats depend on export-type and job-type."
+        ),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -240,6 +336,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Deprecated: raw API action string; when set, overrides --job-type",
     )
+    p_sub.add_argument(
+        "--pages",
+        default=None,
+        metavar="RANGE",
+        help=(
+            "Optional page ranges for extraction (maps to API pdf_slice). "
+            "Single-action jobs: comma-separated ranges like '1-5,7,9-12'. "
+            "Composite jobs (e.g. structureAndActivityReaction): semicolon-separated "
+            "parts like '1-5,7;9-12,15'. Omit to process all pages."
+        ),
+    )
     p_sub.set_defaults(func=cmd_submit)
 
     p_st = sub.add_parser("status", help="Query job status")
@@ -253,16 +360,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_st.set_defaults(func=cmd_status)
 
-    p_res = sub.add_parser("result", help="Fetch finished job result (exports CSV under workdir)")
+    p_res = sub.add_parser("result", help="Fetch finished job result and export file under workdir")
     add_client_flags(p_res)
     p_res.add_argument("--job-id", required=True)
     p_res.add_argument(
         "--job-type",
         default=None,
         choices=list(CLI_JOB_TYPE_CHOICES),
-        help="Optional: skip auto view scan; result links use this type if set",
+        help="Optional: pin list view; also used for export validation when set",
     )
+    _add_export_flags(p_res)
     p_res.set_defaults(func=cmd_result)
+
+    p_exp = sub.add_parser("export", help="Export finished job result file only (no statistics/report)")
+    add_client_flags(p_exp)
+    p_exp.add_argument("--job-id", required=True)
+    p_exp.add_argument(
+        "--job-type",
+        default=None,
+        choices=list(CLI_JOB_TYPE_CHOICES),
+        help="Required when job_type cannot be inferred from task list",
+    )
+    _add_export_flags(p_exp)
+    p_exp.set_defaults(func=cmd_export)
 
     p_rep = sub.add_parser("report", help="Generate HTML summary (from API or JSON)")
     add_client_flags(p_rep)
@@ -273,6 +393,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=list(CLI_JOB_TYPE_CHOICES),
         help="Optional: same as result",
     )
+    _add_export_flags(p_rep)
     p_rep.add_argument(
         "--from-json",
         metavar="PATH",
@@ -291,6 +412,9 @@ def main() -> None:
     try:
         args.func(args)
     except ClientError as e:
+        print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False, indent=2), file=sys.stderr)
+        sys.exit(2)
+    except ExportError as e:
         print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False, indent=2), file=sys.stderr)
         sys.exit(2)
     except Exception as e:
