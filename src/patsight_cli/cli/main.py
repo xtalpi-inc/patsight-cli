@@ -149,16 +149,24 @@ def cmd_status(args: argparse.Namespace) -> None:
     print(json.dumps(to_output_payload(status), ensure_ascii=False, indent=2))
 
 
-def _resolve_result_job_type(client: PatSightClient, args: argparse.Namespace) -> str | None:
+def _explicit_job_type_from_args(args: argparse.Namespace) -> str | None:
     jt = getattr(args, "job_type", None)
     if isinstance(jt, str) and jt.strip():
         return jt.strip()
-    if getattr(args, "job_id", None):
-        status = client.get_job_status_for_job_id(job_id=args.job_id, folder_id=client.folder_id)
-        slug = status.get("job_type")
-        if isinstance(slug, str) and slug.strip():
-            return slug.strip()
     return None
+
+
+def _resolve_result_job_type(
+    client: PatSightClient,
+    args: argparse.Namespace,
+    status: dict[str, Any] | None = None,
+) -> str:
+    from patsight_cli.clients.patsight import resolve_job_type_from_status
+
+    payload = status
+    if payload is None:
+        payload = client.get_job_status_for_job_id(job_id=args.job_id, folder_id=client.folder_id)
+    return resolve_job_type_from_status(payload, explicit=_explicit_job_type_from_args(args))
 
 
 def cmd_result(args: argparse.Namespace) -> None:
@@ -166,10 +174,9 @@ def cmd_result(args: argparse.Namespace) -> None:
     client.login()
 
     if isinstance(client, PatSightClient):
-        jt = _resolve_result_job_type(client, args) or getattr(args, "job_type", None)
         result = client.fetch_result(
             args.job_id,
-            job_type=jt,
+            job_type=_explicit_job_type_from_args(args),
             export_type=getattr(args, "export_type", None),
             file_format=getattr(args, "format", None),
         )
@@ -185,23 +192,28 @@ def cmd_export(args: argparse.Namespace) -> None:
     if not isinstance(client, PatSightClient):
         raise ClientError("export currently supports PatSight client only")
 
-    jt = _resolve_result_job_type(client, args)
-    if not jt:
-        raise ExportError(
-            "Could not determine job_type. Pass --job-type explicitly for export validation."
-        )
-
     status = client.get_job_status_for_job_id(job_id=args.job_id, folder_id=client.folder_id)
+    try:
+        jt = _resolve_result_job_type(client, args, status=status)
+    except ExportError as exc:
+        raise ExportError(
+            f"{exc} Pass --job-type explicitly for export validation."
+        ) from exc
     task_status = str(status.get("status") or "").strip().lower()
     if task_status not in {"done", "completed", "success", "finished"}:
         raise ExportError(f"Job is not finished: job_id={args.job_id}, status={status.get('status')}")
 
-    task_id = str((status.get("task_info") or status).get("id") or status.get("job_id") or args.job_id)
+    task_info = status.get("task_info") or status
+    from patsight_cli.clients.patsight import task_action_from_status, task_id_from_status
+
+    task_id = task_id_from_status(status, args.job_id)
     output_path = client.export_task(
         task_id,
         job_type=jt,  # type: ignore[arg-type]
         export_type=getattr(args, "export_type", None),
         file_format=getattr(args, "format", None),
+        file_name=task_info.get("file_name", ""),
+        task_action=task_action_from_status(status),
     )
     from patsight_cli.export_options import resolve_export_options
 
@@ -238,7 +250,7 @@ def cmd_report(args: argparse.Namespace) -> None:
             raise ClientError("report currently supports PatSight client only")
         jr = client.fetch_result(
             args.job_id,
-            job_type=getattr(args, "job_type", None) or _resolve_result_job_type(client, args),
+            job_type=_explicit_job_type_from_args(args),
             export_type=getattr(args, "export_type", None),
             file_format=getattr(args, "format", None),
         )
