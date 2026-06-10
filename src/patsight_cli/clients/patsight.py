@@ -764,13 +764,17 @@ class PatSightClient(RemoteJobClient):
             url = f"{self.config.base_url}/v3/extractor/task/{task_id}/reactions/export"
             body = {"file_type": resolved_format, "reaction_ids": []}
         elif resolved_type == "namedStructures":
-            structure_ids = self.list_structure_ids(task_id)
-            if not structure_ids:
+            export_ids = self.list_compound_export_ids(
+                task_id,
+                bioactivity_data_type=0,
+                mode="namedStructures",
+            )
+            if not export_ids:
                 raise ExportError(
                     f"No named structures found for task_id={task_id}; cannot export namedStructures."
                 )
-            url = f"{self.config.base_url}/v3/extractor/task/{task_id}/structures/export"
-            body = {"ids": structure_ids, "file_type": resolved_format}
+            url = f"{self.config.base_url}/v3/extractor/task/{task_id}/export"
+            body = {"ids": export_ids, "file_type": resolved_format}
         else:
             if resolved_type == "admet":
                 export_ids = self.list_compound_export_ids(
