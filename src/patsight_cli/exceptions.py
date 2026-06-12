@@ -22,6 +22,10 @@ class FetchResultError(ClientError):
     """Result fetch failed."""
 
 
+class ExportError(ClientError):
+    """Export type/format is invalid for the job."""
+
+
 class JobNotFoundError(ClientError):
     """Job does not exist or is not visible."""
 
