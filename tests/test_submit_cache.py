@@ -14,8 +14,9 @@ def test_build_submit_cache_key_includes_job_type_and_pages() -> None:
             file_name="WO2013190384A1_admet.pdf",
             job_type="structureAndActivity",
             pdf_slice="10-20",
+            folder_id=17,
         )
-        == "WO2013190384A1_admet.pdf|structureAndActivity|10-20"
+        == "WO2013190384A1_admet.pdf|structureAndActivity|10-20|folder:17"
     )
     assert (
         build_submit_cache_key(
@@ -23,7 +24,7 @@ def test_build_submit_cache_key_includes_job_type_and_pages() -> None:
             job_type="iupac",
             pdf_slice="2-8",
         )
-        == "WO2013190384A1_admet.pdf|iupac|2-8"
+        == "WO2013190384A1_admet.pdf|iupac|2-8|folder:0"
     )
 
 
@@ -32,24 +33,35 @@ def test_matches_submit_cache_requires_all_fields() -> None:
         "file_name": "patent.pdf",
         "job_type": "structureAndActivity",
         "pdf_slice": "10-20",
+        "folder_id": 17,
     }
     assert matches_submit_cache(
         cached,
         file_name="patent.pdf",
         job_type="structureAndActivity",
         pdf_slice="10-20",
+        folder_id=17,
     )
     assert not matches_submit_cache(
         cached,
         file_name="patent.pdf",
         job_type="iupac",
         pdf_slice="10-20",
+        folder_id=17,
     )
     assert not matches_submit_cache(
         cached,
         file_name="patent.pdf",
         job_type="structureAndActivity",
         pdf_slice="2-8",
+        folder_id=17,
+    )
+    assert not matches_submit_cache(
+        cached,
+        file_name="patent.pdf",
+        job_type="structureAndActivity",
+        pdf_slice="10-20",
+        folder_id=0,
     )
 
 
@@ -82,7 +94,7 @@ def test_submit_job_cache_miss_for_different_job_type() -> None:
     )
 
     store.get_job_by_remote_id.assert_called_once_with(
-        "patent.pdf|iupac|2-8",
+        "patent.pdf|iupac|2-8|folder:0",
         "patsight",
     )
     client.create_job.assert_called_once()
@@ -96,6 +108,7 @@ def test_submit_job_cache_hit_only_for_matching_job_type_and_pages() -> None:
         "file_name": "patent.pdf",
         "job_type": "structureAndActivity",
         "pdf_slice": "10-20",
+        "folder_id": 17,
         "status": "submitted",
     }
     store.get_job_by_remote_id.return_value = JobRecord(
@@ -103,7 +116,7 @@ def test_submit_job_cache_hit_only_for_matching_job_type_and_pages() -> None:
         client_type="patsight",
         job_type="structureAndActivity",
         input_json=json.dumps(cached_payload),
-        remote_id="patent.pdf|structureAndActivity|10-20",
+        remote_id="patent.pdf|structureAndActivity|10-20|folder:17",
         status=JobStatusEnum.PENDING.value,
         created_at="2026-01-01T00:00:00",
         updated_at="2026-01-01T00:00:00",
@@ -115,6 +128,7 @@ def test_submit_job_cache_hit_only_for_matching_job_type_and_pages() -> None:
             "pdf_path": "/tmp/patent.pdf",
             "job_type": "structureAndActivity",
             "pages": "10-20",
+            "folder_id": 17,
         }
     )
     miss = client.submit_job(
@@ -128,6 +142,50 @@ def test_submit_job_cache_hit_only_for_matching_job_type_and_pages() -> None:
     assert hit == cached_payload
     client.create_job.assert_called_once()
     assert miss["job_id"] == client.create_job.return_value["job_id"]
+
+
+def test_submit_job_cache_miss_for_different_folder_id() -> None:
+    store = MagicMock()
+    cached_payload = {
+        "job_id": "cached-personal",
+        "file_name": "patent.pdf",
+        "job_type": "structureAndActivity",
+        "pdf_slice": "10-20",
+        "folder_id": 0,
+    }
+    store.get_job_by_remote_id.return_value = None
+    client = _make_client_with_store(store)
+    client.create_job.return_value = {
+        "job_id": "shared-job",
+        "file_name": "patent.pdf",
+        "job_type": "structureAndActivity",
+        "pdf_slice": "10-20",
+        "folder_id": 17,
+    }
+
+    assert not matches_submit_cache(
+        cached_payload,
+        file_name="patent.pdf",
+        job_type="structureAndActivity",
+        pdf_slice="10-20",
+        folder_id=17,
+    )
+
+    result = client.submit_job(
+        {
+            "pdf_path": "/tmp/patent.pdf",
+            "job_type": "structureAndActivity",
+            "pages": "10-20",
+            "folder_id": 17,
+        }
+    )
+
+    store.get_job_by_remote_id.assert_called_once_with(
+        "patent.pdf|structureAndActivity|10-20|folder:17",
+        "patsight",
+    )
+    client.create_job.assert_called_once()
+    assert result["folder_id"] == 17
 
 
 def test_submit_job_does_not_hit_legacy_filename_only_cache_key() -> None:
@@ -149,6 +207,8 @@ def test_submit_job_does_not_hit_legacy_filename_only_cache_key() -> None:
         }
     )
 
-    store.get_job_by_remote_id.assert_called_once_with("patent.pdf|iupac|2-8", "patsight")
+    store.get_job_by_remote_id.assert_called_once_with(
+        "patent.pdf|iupac|2-8|folder:0", "patsight"
+    )
     client.create_job.assert_called_once()
     assert result["job_id"] == "new-job"
