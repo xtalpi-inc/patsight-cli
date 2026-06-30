@@ -19,7 +19,7 @@ from patsight_cli.models import JobResult, JobStatus, JobSubmission
 from patsight_cli.registry import ClientRegistry
 from patsight_cli.reporting import generate_patsight_report
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "__version__",
