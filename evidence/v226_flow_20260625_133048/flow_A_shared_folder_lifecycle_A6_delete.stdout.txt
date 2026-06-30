@@ -1,0 +1,6 @@
+{
+  "code": 1,
+  "data": {},
+  "error": "",
+  "message": "Folder and all its subfolders and related records have been deleted successfully!"
+}

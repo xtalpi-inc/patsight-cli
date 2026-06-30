@@ -1,0 +1,16 @@
+2026-06-25 13:34:15,888 | INFO | patsight_cli.clients.patsight | Logging in to PatSight with account: qingnan.xie@xtalpi.com
+{
+  "code": 1,
+  "data": [
+    {
+      "children": [],
+      "creator": "qingnan.xie@xtalpi.com",
+      "id": 3188,
+      "is_shared": false,
+      "path": "qingnan'",
+      "role": 0
+    }
+  ],
+  "error": "",
+  "message": "All task folders retrieved successfully!"
+}

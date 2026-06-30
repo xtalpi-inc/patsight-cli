@@ -1,0 +1,23 @@
+{
+  "code": 1,
+  "data": [
+    {
+      "children": [],
+      "creator": "qingnan.xie@xtalpi.com",
+      "id": 3191,
+      "is_shared": false,
+      "path": "flow-a-20260625_133048-renamed",
+      "role": 0
+    },
+    {
+      "children": [],
+      "creator": "qingnan.xie@xtalpi.com",
+      "id": 3188,
+      "is_shared": false,
+      "path": "qingnan'",
+      "role": 0
+    }
+  ],
+  "error": "",
+  "message": "All task folders retrieved successfully!"
+}

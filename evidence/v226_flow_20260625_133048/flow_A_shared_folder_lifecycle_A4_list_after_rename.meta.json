@@ -1,0 +1,10 @@
+﻿{
+  "step_id": "A4_list_after_rename",
+  "title": "重命名后 list，应显示新名称",
+  "command": "patsight-cli shared-folder list --account qingnan.xie@xtalpi.com --password <password>",
+  "exit_code": 0,
+  "stdout": "{\n  \"code\": 1,\n  \"data\": [\n    {\n      \"children\": [],\n      \"creator\": \"qingnan.xie@xtalpi.com\",\n      \"id\": 3191,\n      \"is_shared\": false,\n      \"path\": \"flow-a-20260625_133048-renamed\",\n      \"role\": 0\n    },\n    {\n      \"children\": [],\n      \"creator\": \"qingnan.xie@xtalpi.com\",\n      \"id\": 3188,\n      \"is_shared\": false,\n      \"path\": \"qingnan'\",\n      \"role\": 0\n    }\n  ],\n  \"error\": \"\",\n  \"message\": \"All task folders retrieved successfully!\"\n}\n",
+  "stderr": "",
+  "passed": false,
+  "notes": ""
+}

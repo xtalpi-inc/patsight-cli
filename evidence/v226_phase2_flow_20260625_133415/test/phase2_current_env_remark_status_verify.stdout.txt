@@ -1,0 +1,56 @@
+{
+  "job_id": "2070017817083781120",
+  "status": "queueing",
+  "detail": "",
+  "raw": {
+    "job_id": "2070017817083781120",
+    "doc_only_id": "",
+    "doc_id": null,
+    "file_name": "WO2010111432A1",
+    "job_handle": null,
+    "job_type": "structureAndActivity",
+    "folder_id": 3188,
+    "status": "Queueing",
+    "site_address": "https://patsight-app-test-hk.xinsight-ai.com/patsight?patsight-app/patent-list/activeMenu/all",
+    "credit": -2.0,
+    "task_info": {
+      "abstract": null,
+      "action": "0",
+      "action_type": "0",
+      "added_by": "qingnan.xie@xtalpi.com",
+      "copy_from_user_email": null,
+      "copy_time": null,
+      "created_time": "Thu, 25 Jun 2026 05:34:41 GMT",
+      "creator": "qingnan.xie@xtalpi.com",
+      "credit": -2.0,
+      "doc_id": null,
+      "entry_count": 0,
+      "error_msg": null,
+      "estimated_completion_time": "Thu, 25 Jun 2026 05:35:21 GMT",
+      "file_name": "WO2010111432A1",
+      "finished_time": null,
+      "folders": [
+        {
+          "added_by": "qingnan.xie@xtalpi.com",
+          "id": 3188,
+          "path": "qingnan'"
+        }
+      ],
+      "id": "2070017817083781120",
+      "is_collection": false,
+      "is_example": false,
+      "iupac_count": null,
+      "job_handle": null,
+      "molecule_count": 0,
+      "pages": [],
+      "pdf_pages": 2,
+      "pdf_url": "https://patent-s3.xinsight-ai.com/xinsight_ai/file/pdf/bf71a590785b4861bc7d9e5a31bc139e/WO2010111432A1.pdf?response-content-type=undefined&response-content-disposition=attachment&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAZHKGOOSKETARESW3%2F20260625%2Fap-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260625T053448Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=191f5263c0aa9f76243553e88c0e44443c25bd5fce90a2ea6ce8e945e2bf2f76",
+      "reaction_count": null,
+      "remarks": "phase2-e2e-20260625_133415",
+      "status": "Queueing",
+      "task_status_code": null,
+      "title": null,
+      "updated_time": "Thu, 25 Jun 2026 05:34:46 GMT"
+    }
+  }
+}

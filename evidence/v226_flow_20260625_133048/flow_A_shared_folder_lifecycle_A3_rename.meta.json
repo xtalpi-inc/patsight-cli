@@ -1,0 +1,10 @@
+﻿{
+  "step_id": "A3_rename",
+  "title": "重命名共享文件夹",
+  "command": "patsight-cli shared-folder rename --folder-id 3191 --name flow-a-20260625_133048-renamed --account qingnan.xie@xtalpi.com --password <password>",
+  "exit_code": 0,
+  "stdout": "2026-06-25 13:30:53,487 | INFO | patsight_cli.clients.patsight | Logging in to PatSight with account: qingnan.xie@xtalpi.com\n{\n  \"code\": 1,\n  \"data\": {},\n  \"error\": \"\",\n  \"message\": \"Folder name updated successfully!\"\n}\n",
+  "stderr": "",
+  "passed": true,
+  "notes": ""
+}

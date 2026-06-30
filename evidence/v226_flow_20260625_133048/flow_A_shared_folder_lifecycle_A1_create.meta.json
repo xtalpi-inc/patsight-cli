@@ -1,0 +1,10 @@
+﻿{
+  "step_id": "A1_create",
+  "title": "创建共享文件夹",
+  "command": "patsight-cli shared-folder create --name flow-a-20260625_133048 --account qingnan.xie@xtalpi.com --password <password>",
+  "exit_code": 0,
+  "stdout": "2026-06-25 13:30:51,615 | INFO | patsight_cli.clients.patsight | Logging in to PatSight with account: qingnan.xie@xtalpi.com\n{\n  \"code\": 1,\n  \"data\": {\n    \"folder_id\": 3191,\n    \"path\": \"flow-a-20260625_133048\",\n    \"type\": \"folder\"\n  },\n  \"error\": \"\",\n  \"message\": \"Directory created successfully!\"\n}\n",
+  "stderr": "",
+  "passed": false,
+  "notes": ""
+}

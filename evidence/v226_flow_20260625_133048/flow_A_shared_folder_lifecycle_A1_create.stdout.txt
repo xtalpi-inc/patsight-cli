@@ -1,0 +1,11 @@
+2026-06-25 13:30:51,615 | INFO | patsight_cli.clients.patsight | Logging in to PatSight with account: qingnan.xie@xtalpi.com
+{
+  "code": 1,
+  "data": {
+    "folder_id": 3191,
+    "path": "flow-a-20260625_133048",
+    "type": "folder"
+  },
+  "error": "",
+  "message": "Directory created successfully!"
+}

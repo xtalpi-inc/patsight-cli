@@ -1,0 +1,21 @@
+{
+  "code": 1,
+  "data": {
+    "conflict_count": 0,
+    "conflicts": [],
+    "failed": [],
+    "failed_count": 0,
+    "folder_id": 3188,
+    "succeeded": [
+      {
+        "doc_id": null,
+        "file_name": "WO2010111432A1",
+        "task_id": 2070016907058225152
+      }
+    ],
+    "succeeded_count": 1,
+    "total": 1
+  },
+  "error": "",
+  "message": "1 patent(s) added"
+}

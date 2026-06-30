@@ -1,0 +1,10 @@
+﻿{
+  "step_id": "A6_delete",
+  "title": "删除共享文件夹",
+  "command": "patsight-cli shared-folder delete --folder-id 3191 --account qingnan.xie@xtalpi.com --password <password>",
+  "exit_code": 0,
+  "stdout": "{\n  \"code\": 1,\n  \"data\": {},\n  \"error\": \"\",\n  \"message\": \"Folder and all its subfolders and related records have been deleted successfully!\"\n}\n",
+  "stderr": "",
+  "passed": true,
+  "notes": ""
+}

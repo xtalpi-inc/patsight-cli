@@ -1,0 +1,10 @@
+﻿{
+  "step_id": "D1_members_list",
+  "title": "members list（当前生产环境预期不可用）",
+  "command": "patsight-cli shared-folder members list --folder-id 3188 --account qingnan.xie@xtalpi.com --password <password>",
+  "exit_code": 0,
+  "stdout": "{\n  \"code\": 1,\n  \"data\": {\n    \"count\": 1,\n    \"members\": [\n      {\n        \"created_time\": \"Wed, 24 Jun 2026 06:53:33 GMT\",\n        \"creator\": \"qingnan.xie@xtalpi.com\",\n        \"role\": 0,\n        \"user_email\": \"qingnan.xie@xtalpi.com\"\n      }\n    ]\n  },\n  \"error\": \"\",\n  \"message\": \"\"\n}\n",
+  "stderr": "",
+  "passed": false,
+  "notes": ""
+}

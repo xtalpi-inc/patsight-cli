@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "zip_path": "C:\\Users\\qingnan.xie\\Desktop\\patsight\\evidence\\v226_phase2_flow_20260625_133415\\test\\phase2.zip",
+  "task_count": 0,
+  "exported_count": 0,
+  "skipped_count": 0,
+  "warnings": []
+}

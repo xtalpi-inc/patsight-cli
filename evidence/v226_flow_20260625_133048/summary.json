@@ -1,0 +1,139 @@
+{
+  "finished_at": "2026-06-25T13:31:43.616743",
+  "evidence_dir": "C:\\Users\\qingnan.xie\\Desktop\\patsight\\evidence\\v226_flow_20260625_133048",
+  "existing_folder_id": 3188,
+  "flows": [
+    {
+      "name": "flow_A_shared_folder_lifecycle",
+      "passed": true,
+      "steps": [
+        {
+          "step_id": "A1_create",
+          "title": "创建共享文件夹",
+          "passed": true,
+          "notes": "folder_id=3191"
+        },
+        {
+          "step_id": "A2_list_after_create",
+          "title": "创建后立即 list，应能查到新文件夹",
+          "passed": true,
+          "notes": "visible_paths=['flow-a-20260625_133048', \"qingnan'\"]"
+        },
+        {
+          "step_id": "A3_rename",
+          "title": "重命名共享文件夹",
+          "passed": true,
+          "notes": ""
+        },
+        {
+          "step_id": "A4_list_after_rename",
+          "title": "重命名后 list，应显示新名称",
+          "passed": true,
+          "notes": "path_after_rename=flow-a-20260625_133048-renamed"
+        },
+        {
+          "step_id": "A5_patents_list_empty",
+          "title": "新建文件夹 patents list 应为空",
+          "passed": true,
+          "notes": "count=0"
+        },
+        {
+          "step_id": "A6_delete",
+          "title": "删除共享文件夹",
+          "passed": true,
+          "notes": ""
+        },
+        {
+          "step_id": "A7_list_after_delete",
+          "title": "删除后 list，不应再出现该 folder_id",
+          "passed": true,
+          "notes": "remaining_paths=[\"qingnan'\"]"
+        }
+      ]
+    },
+    {
+      "name": "flow_B_submit_patent_chain",
+      "passed": false,
+      "steps": [
+        {
+          "step_id": "B1_submit_to_shared_folder",
+          "title": "提交 PDF 到已有共享文件夹",
+          "passed": true,
+          "notes": "folder_id=3188, task_id=2070016907058225152, cache_hit=False"
+        },
+        {
+          "step_id": "B2_patents_list_after_submit",
+          "title": "提交后 shared-folder patents list 应出现该 task",
+          "passed": true,
+          "notes": "task_ids=['2069729366941769728', '2069985206261129216', '2069985338176184320', '2070016907058225152']"
+        },
+        {
+          "step_id": "B3_patent_detail",
+          "title": "patent detail 应能查到同一 task",
+          "passed": true,
+          "notes": "detail_id=2070016907058225152"
+        },
+        {
+          "step_id": "B4_patents_remove",
+          "title": "将 task 从共享文件夹移出",
+          "passed": true,
+          "notes": ""
+        },
+        {
+          "step_id": "B5_patents_list_after_remove",
+          "title": "移出后 patents list 不应再包含该 task",
+          "passed": true,
+          "notes": "task_ids=['2069729366941769728', '2069985206261129216', '2069985338176184320']"
+        },
+        {
+          "step_id": "B6_patents_add_back",
+          "title": "再将 task 加回共享文件夹",
+          "passed": true,
+          "notes": ""
+        },
+        {
+          "step_id": "B7_patents_list_after_add_back",
+          "title": "加回后 patents list 应再次出现该 task",
+          "passed": true,
+          "notes": "task_ids=['2069729366941769728', '2069985206261129216', '2069985338176184320', '2070016907058225152']"
+        },
+        {
+          "step_id": "B8_patent_list_folder_filter",
+          "title": "patent list --folder-id 应与 shared-folder patents list 一致（关联验证）",
+          "passed": false,
+          "notes": "patent_list_ids=[]; shared_patents_ids=['2069729366941769728', '2069985206261129216', '2069985338176184320', '2070016907058225152']"
+        }
+      ]
+    },
+    {
+      "name": "flow_C_submit_cache_regression",
+      "passed": true,
+      "steps": [
+        {
+          "step_id": "C1_submit_personal_first",
+          "title": "首次 submit pages=15-16 到个人目录（未指定 shared-folder-id）",
+          "passed": true,
+          "notes": "folder_id=0, cache_hit=False"
+        },
+        {
+          "step_id": "C2_submit_shared_same_pages",
+          "title": "相同 pages 再 submit 到共享文件夹，验证 folder_id 是否仍正确",
+          "passed": true,
+          "notes": "personal_first_folder=0, shared_second_folder=3188, cache_hit=False; expected=3188"
+        }
+      ]
+    },
+    {
+      "name": "flow_D_members_backend_gap",
+      "passed": false,
+      "steps": [
+        {
+          "step_id": "D1_members_list",
+          "title": "members list（当前生产环境预期不可用）",
+          "passed": false,
+          "notes": "生产 members 路由 404，属于后端缺口，不是单命令语法问题"
+        }
+      ]
+    }
+  ]
+}

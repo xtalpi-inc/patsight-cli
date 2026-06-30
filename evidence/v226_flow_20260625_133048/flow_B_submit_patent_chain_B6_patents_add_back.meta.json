@@ -1,0 +1,10 @@
+﻿{
+  "step_id": "B6_patents_add_back",
+  "title": "再将 task 加回共享文件夹",
+  "command": "patsight-cli shared-folder patents add --folder-id 3188 --task-id 2070016907058225152 --account qingnan.xie@xtalpi.com --password <password>",
+  "exit_code": 0,
+  "stdout": "{\n  \"code\": 1,\n  \"data\": {\n    \"conflict_count\": 0,\n    \"conflicts\": [],\n    \"failed\": [],\n    \"failed_count\": 0,\n    \"folder_id\": 3188,\n    \"succeeded\": [\n      {\n        \"doc_id\": null,\n        \"file_name\": \"WO2010111432A1\",\n        \"task_id\": 2070016907058225152\n      }\n    ],\n    \"succeeded_count\": 1,\n    \"total\": 1\n  },\n  \"error\": \"\",\n  \"message\": \"1 patent(s) added\"\n}\n",
+  "stderr": "",
+  "passed": true,
+  "notes": ""
+}

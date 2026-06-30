@@ -1,0 +1,15 @@
+Patent job not submitted (file=WO2010111432A1.pdf, type=structureAndActivity, pages=15-16). Creating new job...
+{
+  "job_id": "2070017009780924416",
+  "task_id": "a1858b3b-2c02-46c8-8c4d-f0de3bd7bc0e",
+  "doc_only_id": "79fc141158bc459da5ad39e1f6f72c3f",
+  "doc_id": "WO2010111432A1",
+  "file_name": "WO2010111432A1.pdf",
+  "file_path": "C:\\Users\\qingnan.xie\\Desktop\\patsight\\WO2010111432A1.pdf",
+  "job_type": "structureAndActivity",
+  "api_action": "0",
+  "pdf_slice": "15-16",
+  "folder_id": 0,
+  "status": "Queueing",
+  "site_address": "https://patsight-app-test-hk.xinsight-ai.com/patsight?patsight-app/patent-list/activeMenu/all"
+}

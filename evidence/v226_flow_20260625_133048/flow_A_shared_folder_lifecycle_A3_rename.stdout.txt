@@ -1,0 +1,7 @@
+2026-06-25 13:30:53,487 | INFO | patsight_cli.clients.patsight | Logging in to PatSight with account: qingnan.xie@xtalpi.com
+{
+  "code": 1,
+  "data": {},
+  "error": "",
+  "message": "Folder name updated successfully!"
+}

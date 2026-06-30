@@ -1,0 +1,128 @@
+{
+  "finished_at": "2026-06-25T13:34:53.099132",
+  "evidence_root": "C:\\Users\\qingnan.xie\\Desktop\\patsight\\evidence\\v226_phase2_flow_20260625_133415",
+  "flows": [
+    {
+      "name": "phase2_current_env",
+      "environment": "test",
+      "passed": false,
+      "steps": [
+        {
+          "name": "remarks_route",
+          "passed": true,
+          "detail": "POST /task/remarks status=401",
+          "command": null,
+          "exit_code": null,
+          "stdout_file": null,
+          "stderr_file": null
+        },
+        {
+          "name": "shared_folder_list_for_setup",
+          "passed": true,
+          "detail": "selected folder_id=3188",
+          "command": "patsight-cli shared-folder list --account qingnan.xie@xtalpi.com --password <password>",
+          "exit_code": 0,
+          "stdout_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_shared_folder_list_for_setup.stdout.txt",
+          "stderr_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_shared_folder_list_for_setup.stderr.txt"
+        },
+        {
+          "name": "submit_personal_cache_seed",
+          "passed": true,
+          "detail": "exit code matched expectation",
+          "command": "patsight-cli submit --pdf-path C:\\Users\\qingnan.xie\\Desktop\\patsight\\WO2010111432A1.pdf --pages 21-22 --account qingnan.xie@xtalpi.com --password <password>",
+          "exit_code": 0,
+          "stdout_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_submit_personal_cache_seed.stdout.txt",
+          "stderr_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_submit_personal_cache_seed.stderr.txt"
+        },
+        {
+          "name": "submit_shared_same_pages",
+          "passed": true,
+          "detail": "expected folder_id=3188, actual=3188",
+          "command": "patsight-cli submit --pdf-path C:\\Users\\qingnan.xie\\Desktop\\patsight\\WO2010111432A1.pdf --shared-folder-id 3188 --pages 21-22 --account qingnan.xie@xtalpi.com --password <password>",
+          "exit_code": 0,
+          "stdout_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_submit_shared_same_pages.stdout.txt",
+          "stderr_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_submit_shared_same_pages.stderr.txt"
+        },
+        {
+          "name": "remark_set",
+          "passed": true,
+          "detail": "exit code matched expectation",
+          "command": "patsight-cli patent remark set --task-id 2070017817083781120 --remark phase2-e2e-20260625_133415 --account qingnan.xie@xtalpi.com --password <password>",
+          "exit_code": 0,
+          "stdout_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_remark_set.stdout.txt",
+          "stderr_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_remark_set.stderr.txt"
+        },
+        {
+          "name": "remark_status_verify",
+          "passed": true,
+          "detail": "expected remark=phase2-e2e-20260625_133415, status remark='phase2-e2e-20260625_133415'",
+          "command": "patsight-cli status --job-id 2070017817083781120 --folder-id 3188 --account qingnan.xie@xtalpi.com --password <password>",
+          "exit_code": 0,
+          "stdout_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_remark_status_verify.stdout.txt",
+          "stderr_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_remark_status_verify.stderr.txt"
+        },
+        {
+          "name": "patent_list_remark_filter",
+          "passed": false,
+          "detail": "expected remark=phase2-e2e-20260625_133415, matched=False",
+          "command": "patsight-cli patent list --folder-id 3188 --remark phase2-e2e-20260625_133415 --fetch-all --per-page 20 --account qingnan.xie@xtalpi.com --password <password>",
+          "exit_code": 0,
+          "stdout_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_patent_list_remark_filter.stdout.txt",
+          "stderr_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_patent_list_remark_filter.stderr.txt"
+        },
+        {
+          "name": "patent_export_zip",
+          "passed": true,
+          "detail": "task_count=0, exported_count=0, skipped_count=0",
+          "command": "patsight-cli patent export --zip --folder-id 3188 --per-page 5 --no-editors -o C:\\Users\\qingnan.xie\\Desktop\\patsight\\evidence\\v226_phase2_flow_20260625_133415\\test\\phase2.zip --account qingnan.xie@xtalpi.com --password <password>",
+          "exit_code": 0,
+          "stdout_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_patent_export_zip.stdout.txt",
+          "stderr_file": "evidence\\v226_phase2_flow_20260625_133415\\test\\phase2_current_env_patent_export_zip.stderr.txt"
+        }
+      ]
+    },
+    {
+      "name": "dev_swagger_route_probe",
+      "environment": "dev_swagger",
+      "passed": true,
+      "steps": [
+        {
+          "name": "remarks_route",
+          "passed": true,
+          "detail": "POST /v2/extractor/task/remarks status=200",
+          "command": null,
+          "exit_code": null,
+          "stdout_file": null,
+          "stderr_file": null
+        },
+        {
+          "name": "members_route",
+          "passed": true,
+          "detail": "GET /v2/extractor/task/folder/1/members status=200",
+          "command": null,
+          "exit_code": null,
+          "stdout_file": null,
+          "stderr_file": null
+        },
+        {
+          "name": "editors_route",
+          "passed": true,
+          "detail": "GET /v3/extractor/task/1/editors status=500",
+          "command": null,
+          "exit_code": null,
+          "stdout_file": null,
+          "stderr_file": null
+        },
+        {
+          "name": "tasks_route",
+          "passed": true,
+          "detail": "GET /v2/extractor/tasks status=500",
+          "command": null,
+          "exit_code": null,
+          "stdout_file": null,
+          "stderr_file": null
+        }
+      ]
+    }
+  ]
+}

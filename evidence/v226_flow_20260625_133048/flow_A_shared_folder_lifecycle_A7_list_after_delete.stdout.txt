@@ -1,0 +1,15 @@
+{
+  "code": 1,
+  "data": [
+    {
+      "children": [],
+      "creator": "qingnan.xie@xtalpi.com",
+      "id": 3188,
+      "is_shared": false,
+      "path": "qingnan'",
+      "role": 0
+    }
+  ],
+  "error": "",
+  "message": "All task folders retrieved successfully!"
+}

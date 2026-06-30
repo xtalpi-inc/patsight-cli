@@ -1,0 +1,10 @@
+﻿{
+  "step_id": "B4_patents_remove",
+  "title": "将 task 从共享文件夹移出",
+  "command": "patsight-cli shared-folder patents remove --folder-id 3188 --task-id 2070016907058225152 --account qingnan.xie@xtalpi.com --password <password>",
+  "exit_code": 0,
+  "stdout": "{\n  \"code\": 1,\n  \"data\": {},\n  \"error\": \"\",\n  \"message\": \"Tasks removed from folder successfully!\"\n}\n",
+  "stderr": "",
+  "passed": true,
+  "notes": ""
+}

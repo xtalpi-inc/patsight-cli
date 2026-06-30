@@ -1,0 +1,10 @@
+﻿{
+  "step_id": "B1_submit_to_shared_folder",
+  "title": "提交 PDF 到已有共享文件夹",
+  "command": "patsight-cli submit --pdf-path C:\\Users\\qingnan.xie\\Desktop\\patsight\\WO2010111432A1.pdf --shared-folder-id 3188 --pages 13-14 --account qingnan.xie@xtalpi.com --password <password>",
+  "exit_code": 0,
+  "stdout": "Patent job not submitted (file=WO2010111432A1.pdf, type=structureAndActivity, pages=13-14). Creating new job...\n{\n  \"job_id\": \"2070016907058225152\",\n  \"task_id\": \"d955abad-aba4-4e31-8f51-b45d3d3d25f5\",\n  \"doc_only_id\": \"8867919a639f461d9b4aeaa50311163f\",\n  \"doc_id\": \"WO2010111432A1\",\n  \"file_name\": \"WO2010111432A1.pdf\",\n  \"file_path\": \"C:\\\\Users\\\\qingnan.xie\\\\Desktop\\\\patsight\\\\WO2010111432A1.pdf\",\n  \"job_type\": \"structureAndActivity\",\n  \"api_action\": \"0\",\n  \"pdf_slice\": \"13-14\",\n  \"folder_id\": 3188,\n  \"status\": \"Queueing\",\n  \"site_address\": \"https://patsight-app-test-hk.xinsight-ai.com/patsight?patsight-app/patent-list/activeMenu/all\"\n}\n",
+  "stderr": "\n������ PatSight job submitted ������\n  job_id: 2070016907058225152\n  file: WO2010111432A1.pdf\n  type: structureAndActivity\n  status: Queueing\n  pages: 13-14\n  view: https://patsight-app-test-hk.xinsight-ai.com/patsight?patsight-app/patent-list/activeMenu/all\n\n",
+  "passed": false,
+  "notes": ""
+}

@@ -1,0 +1,8 @@
+﻿
+������ PatSight job submitted ������
+  job_id: 2070017051283562496
+  file: WO2010111432A1.pdf
+  type: structureAndActivity
+  status: Queueing
+  pages: 15-16
+  view: https://patsight-app-test-hk.xinsight-ai.com/patsight?patsight-app/patent-list/activeMenu/all

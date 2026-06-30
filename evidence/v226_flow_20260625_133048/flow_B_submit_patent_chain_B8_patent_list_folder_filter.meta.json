@@ -1,0 +1,10 @@
+﻿{
+  "step_id": "B8_patent_list_folder_filter",
+  "title": "patent list --folder-id 应与 shared-folder patents list 一致（关联验证）",
+  "command": "patsight-cli patent list --folder-id 3188 --page 1 --per-page 20 --account qingnan.xie@xtalpi.com --password <password>",
+  "exit_code": 0,
+  "stdout": "{\n  \"code\": 1,\n  \"data\": {\n    \"count\": 0,\n    \"task_info\": []\n  },\n  \"error\": \"\",\n  \"message\": \"\"\n}\n",
+  "stderr": "",
+  "passed": false,
+  "notes": ""
+}
