@@ -60,14 +60,26 @@ def test_patent_rows_from_response_extracts_task_info() -> None:
 def test_filter_patent_rows_by_remark_and_creator() -> None:
     """关键参数：无
     返回值：None
-    描述：验证备注和创建者邮箱客户端筛选。
+    描述：验证备注精确匹配和创建者邮箱客户端筛选。
     """
     rows = patent_rows_from_response(sample_response())
-    assert [row["id"] for row in filter_patent_rows(rows, remark="priority")] == [1]
+    assert [row["id"] for row in filter_patent_rows(rows, remark="Priority review")] == [1]
+    assert [row["id"] for row in filter_patent_rows(rows, remark="priority")] == []
     assert [row["id"] for row in filter_patent_rows(rows, creator_email="owner@example.com")] == [
         1,
         3,
     ]
+
+
+def test_filter_patent_rows_by_folder_id() -> None:
+    """关键参数：无
+    返回值：None
+    描述：验证客户端会按 folders 元数据再次确认 folder_id 归属。
+    """
+    rows = patent_rows_from_response(sample_response())
+    assert [row["id"] for row in filter_patent_rows(rows, folder_id=10)] == [1, 3]
+    assert [row["id"] for row in filter_patent_rows(rows, folder_id=11)] == [3]
+    assert [row["id"] for row in filter_patent_rows(rows, folder_id=99)] == []
 
 
 def test_filter_patent_rows_by_folder_count() -> None:
