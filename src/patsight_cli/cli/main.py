@@ -1,3 +1,5 @@
+"""PatSight CLI 入口，负责参数解析并调度远程任务与共享文件夹命令。"""
+
 from __future__ import annotations
 
 import argparse
@@ -14,6 +16,16 @@ from patsight_cli.base import RemoteJobClient
 from patsight_cli.clients.patsight import CLI_JOB_TYPE_CHOICES, PatSightClient
 from patsight_cli.config import load_yaml_config, merge_client_kwargs, resolve_profile
 from patsight_cli.exceptions import ClientError, ExportError
+from patsight_cli.export.batch_zip import export_patents_to_zip
+from patsight_cli.patent_filters import (
+    apply_patent_filters,
+    has_client_filters,
+    has_last_operation_filters,
+    patent_rows_from_response,
+    task_matches_last_operation_filters,
+    validate_last_operation_date_filters,
+    with_patent_rows,
+)
 from patsight_cli.logging_utils import setup_logging
 from patsight_cli.registry import ClientRegistry
 from patsight_cli.reporting.html import generate_patsight_report
@@ -33,7 +45,31 @@ def parse_json_or_text(value: str | None) -> Any:
         return value
 
 
+def _reject_payload_submit_flag_conflicts(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：阻止 payload 模式下静默忽略结构化 submit 参数。
+    """
+    if not (getattr(args, "payload_file", None) or getattr(args, "payload", None)):
+        return
+    conflict_flags = {
+        "--pdf-path": getattr(args, "pdf_path", None),
+        "--action": getattr(args, "action", None),
+        "--job-type": getattr(args, "job_type", None),
+        "--folder-id": getattr(args, "folder_id", None),
+        "--shared-folder-id": getattr(args, "shared_folder_id", None),
+        "--pages": getattr(args, "pages", None),
+    }
+    used_flags = [flag_name for flag_name, value in conflict_flags.items() if value is not None]
+    if used_flags:
+        raise ClientError(
+            "--payload/--payload-file cannot be combined with submit flags: "
+            + ", ".join(used_flags)
+        )
+
+
 def load_payload(args: argparse.Namespace) -> Any:
+    _reject_payload_submit_flag_conflicts(args)
     if getattr(args, "payload_file", None):
         content = Path(args.payload_file).read_text(encoding="utf-8")
         return parse_json_or_text(content)
@@ -45,7 +81,12 @@ def load_payload(args: argparse.Namespace) -> Any:
             payload["action"] = args.action
         else:
             payload["job_type"] = getattr(args, "job_type", None) or "structureAndActivity"
-        if getattr(args, "folder_id", None) is not None:
+        shared_folder_id = getattr(args, "shared_folder_id", None)
+        if shared_folder_id is not None and getattr(args, "folder_id", None) is not None:
+            raise ClientError("--shared-folder-id cannot be used together with --folder-id.")
+        if shared_folder_id is not None:
+            payload["folder_id"] = shared_folder_id
+        elif getattr(args, "folder_id", None) is not None:
             payload["folder_id"] = args.folder_id
         if getattr(args, "pages", None):
             payload["pages"] = args.pages
@@ -55,7 +96,7 @@ def load_payload(args: argparse.Namespace) -> Any:
 
 def build_common_client_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     return {
-        "name": getattr(args, "name", None),
+        "name": args.client_name,
         "workdir": getattr(args, "workdir", None),
         "account": getattr(args, "account", None),
         "token": getattr(args, "token", None),
@@ -130,11 +171,41 @@ def cmd_login(args: argparse.Namespace) -> None:
     print(json.dumps({"ok": True, "client": repr(client)}, ensure_ascii=False, indent=2))
 
 
+def _validate_remark(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if len(value) > 139:
+        raise ClientError("--remark must be at most 139 characters.")
+    return value
+
+
+def _task_id_for_remark(payload: dict[str, Any]) -> int:
+    raw_task_id = payload.get("job_id") or payload.get("id")
+    if raw_task_id is None:
+        raise ClientError("submit succeeded but response did not include a numeric task id for remark.")
+    try:
+        return int(raw_task_id)
+    except (TypeError, ValueError) as exc:
+        raise ClientError(f"submit response task id is not numeric: {raw_task_id!r}") from exc
+
+
 def cmd_submit(args: argparse.Namespace) -> None:
     client = create_client_from_args(args)
     client.login()
     submission = client.submit_job(load_payload(args))
     payload = to_output_payload(submission)
+    remark = _validate_remark(getattr(args, "remark", None))
+    if remark is not None:
+        if not isinstance(client, PatSightClient):
+            raise ClientError("submit --remark currently supports PatSight client only")
+        remark_task_id = _task_id_for_remark(payload)
+        try:
+            remark_response = client.set_patent_remark(remark_task_id, remark)
+            payload["remark"] = {"ok": True, "response": remark_response}
+        except Exception as exc:  # noqa: BLE001
+            raise ClientError(
+                f"submit succeeded but remark update failed for task_id={remark_task_id}: {exc}"
+            ) from exc
     if getattr(client, "client_type", None) == "patsight":
         _print_patsight_submit_hint(payload)
     print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -263,6 +334,338 @@ def cmd_report(args: argparse.Namespace) -> None:
     print(json.dumps({"ok": True, "html_path": path}, ensure_ascii=False, indent=2))
 
 
+def create_patsight_client_for_command(args: argparse.Namespace, command_name: str) -> PatSightClient:
+    """关键参数：(args: argparse.Namespace, command_name: str)
+    返回值：PatSightClient
+    描述：为 PatSight 专属命令创建并登录客户端。
+    """
+    client = create_client_from_args(args)
+    client.login()
+    if not isinstance(client, PatSightClient):
+        raise ClientError(f"{command_name} currently supports PatSight client only")
+    return client
+
+
+def cmd_shared_folder_list(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：列出当前用户可访问的共享文件夹树并输出 JSON。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder")
+    response = client.list_shared_folders(view=args.view)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_shared_folder_create(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：创建共享文件夹或其子文件夹并输出后端响应。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder")
+    response = client.create_shared_folder(args.name, parent_id=args.parent_id, view=args.view)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_shared_folder_rename(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：重命名共享文件夹并输出后端响应。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder")
+    response = client.rename_shared_folder(args.folder_id, args.name)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_shared_folder_delete(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：删除共享文件夹并输出后端响应。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder")
+    response = client.delete_shared_folder(args.folder_id)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_shared_folder_members_list(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：列出一级共享文件夹成员并输出后端响应。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder members")
+    response = client.list_shared_folder_members(args.folder_id)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_shared_folder_members_add(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：向一级共享文件夹添加成员并输出后端响应。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder members")
+    response = client.add_shared_folder_member(args.folder_id, args.email, role=args.role)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_shared_folder_members_remove(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：删除一级共享文件夹中的指定邮箱成员并输出后端响应。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder members")
+    response = client.remove_shared_folder_member(args.folder_id, args.email)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_shared_folder_members_role(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：修改一级共享文件夹成员角色并输出后端响应。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder members")
+    response = client.update_shared_folder_member_role(args.folder_id, args.email, args.role)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_shared_folder_patents_list(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：列出共享文件夹内专利并输出后端响应。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder patents")
+    response = client.list_shared_folder_patents(args.folder_id)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_shared_folder_patents_add(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：将专利加入共享文件夹并输出后端响应。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder patents")
+    response = client.add_shared_folder_patents(args.folder_id, args.task_id)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_shared_folder_patents_remove(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：将专利从共享文件夹移出并输出后端响应。
+    """
+    client = create_patsight_client_for_command(args, "shared-folder patents")
+    response = client.remove_shared_folder_patents(args.folder_id, args.task_id)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_patent_list(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：分页查询当前用户可访问的专利并输出 JSON。
+    """
+    _require_fetch_all_for_client_filters(args, "patent list")
+    validate_last_operation_date_filters(
+        last_operated_after=args.last_operated_after,
+        last_operated_before=args.last_operated_before,
+    )
+    client = create_patsight_client_for_command(args, "patent")
+    response = _list_patents_for_args(client, args)
+    if has_client_filters(
+        remark=args.remark,
+        creator_email=args.creator_email,
+        unfiled=args.unfiled,
+        multi_folder=args.multi_folder,
+    ):
+        response = apply_patent_filters(
+            response,
+            remark=args.remark,
+            creator_email=args.creator_email,
+            unfiled=args.unfiled,
+            multi_folder=args.multi_folder,
+        )
+    if has_last_operation_filters(
+        last_operator=args.last_operator,
+        last_operated_after=args.last_operated_after,
+        last_operated_before=args.last_operated_before,
+    ):
+        response = apply_last_operation_filters(client, response, args)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def row_task_id(row: dict[str, Any]) -> int | None:
+    """关键参数：(row: dict[str, Any])
+    返回值：int | None
+    描述：读取专利列表行中的数字 task id。
+    """
+    raw_id = row.get("id") or row.get("task_id")
+    if raw_id is None:
+        return None
+    try:
+        return int(raw_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def apply_last_operation_filters(
+    client: PatSightClient, response: dict[str, Any], args: argparse.Namespace
+) -> dict[str, Any]:
+    """关键参数：(client: PatSightClient, response: dict[str, Any], args: argparse.Namespace)
+    返回值：dict[str, Any]
+    描述：调用 editors 接口按最后操作人和最后操作时间过滤专利列表。
+    """
+    filtered_rows: list[dict[str, Any]] = []
+    for row in patent_rows_from_response(response):
+        task_id = row_task_id(row)
+        if task_id is None:
+            continue
+        editors_payload = client.list_patent_editors(task_id)
+        if task_matches_last_operation_filters(
+            editors_payload,
+            last_operator=args.last_operator,
+            last_operated_after=args.last_operated_after,
+            last_operated_before=args.last_operated_before,
+        ):
+            filtered_rows.append(row)
+    return with_patent_rows(response, filtered_rows)
+
+
+def _require_fetch_all_for_client_filters(args: argparse.Namespace, command_name: str) -> None:
+    """关键参数：(args: argparse.Namespace, command_name: str)
+    返回值：None
+    描述：要求客户端筛选在完整分页数据上执行，避免单页误报。
+    """
+    if getattr(args, "fetch_all", False):
+        return
+    if has_client_filters(
+        remark=getattr(args, "remark", None),
+        creator_email=getattr(args, "creator_email", None),
+        unfiled=getattr(args, "unfiled", False),
+        multi_folder=getattr(args, "multi_folder", False),
+    ) or has_last_operation_filters(
+        last_operator=getattr(args, "last_operator", None),
+        last_operated_after=getattr(args, "last_operated_after", None),
+        last_operated_before=getattr(args, "last_operated_before", None),
+    ):
+        raise ClientError(f"{command_name} client-side filters require --fetch-all.")
+
+
+def _patent_list_kwargs(args: argparse.Namespace, *, page: int | None = None) -> dict[str, Any]:
+    return {
+        "page": page if page is not None else args.page,
+        "per_page": args.per_page,
+        "sort_by": args.sort_by,
+        "sort_dir": args.sort_dir,
+        "status": args.status,
+        "is_collection": args.is_collection,
+        "folder_id": args.folder_id,
+        "name": args.name,
+        "name_field": args.name_field,
+        "searched_smiles": args.searched_smiles,
+        "view": args.view,
+        "exclude_action": args.exclude_action,
+        "last_operator": args.last_operator,
+        "last_operated_after": args.last_operated_after,
+        "last_operated_before": args.last_operated_before,
+    }
+
+
+def _list_patents_for_args(client: PatSightClient, args: argparse.Namespace) -> dict[str, Any]:
+    if not args.fetch_all:
+        return client.list_accessible_patents(**_patent_list_kwargs(args))
+
+    per_page = args.per_page or 100
+    start_page = args.page or 1
+    max_pages = getattr(getattr(client, "config", None), "list_tasks_max_pages", 500)
+    merged: dict[str, Any] | None = None
+    rows: list[dict[str, Any]] = []
+    total_count: int | None = None
+
+    for index in range(max_pages):
+        page = start_page + index
+        kwargs = _patent_list_kwargs(args, page=page)
+        kwargs["per_page"] = per_page
+        response = client.list_accessible_patents(**kwargs)
+        if merged is None:
+            merged = response
+        data = response.get("data") if isinstance(response, dict) else None
+        if isinstance(data, dict) and isinstance(data.get("count"), int):
+            total_count = data["count"]
+        page_rows = patent_rows_from_response(response)
+        rows.extend(page_rows)
+        if not page_rows:
+            break
+        if total_count is not None and len(rows) >= total_count:
+            break
+
+    if merged is None:
+        merged = {"code": 1, "data": {"count": 0, "task_info": []}, "error": "", "message": ""}
+    data = merged.setdefault("data", {})
+    if isinstance(data, dict):
+        data["task_info"] = rows
+        data["count"] = len(rows)
+        data["fetched_all"] = True
+    return merged
+
+
+def cmd_patent_detail(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：查询单篇专利详情并输出 JSON。
+    """
+    client = create_patsight_client_for_command(args, "patent")
+    response = client.get_patent_detail(args.task_id)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_patent_editors(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：查询专利最后编辑用户和时间并输出 JSON。
+    """
+    client = create_patsight_client_for_command(args, "patent")
+    response = client.list_patent_editors(args.task_id)
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_patent_remark_set(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：设置或清除指定专利的用户备注。
+    """
+    client = create_patsight_client_for_command(args, "patent remark")
+    response = client.set_patent_remark(args.task_id, _validate_remark(args.remark))
+    print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def cmd_patent_export_zip(args: argparse.Namespace) -> None:
+    """关键参数：(args: argparse.Namespace)
+    返回值：None
+    描述：按专利列表筛选结果本地打包导出 zip。
+    """
+    if not args.zip:
+        raise ClientError("patent export currently requires --zip.")
+    _require_fetch_all_for_client_filters(args, "patent export --zip")
+    validate_last_operation_date_filters(
+        last_operated_after=args.last_operated_after,
+        last_operated_before=args.last_operated_before,
+    )
+    client = create_patsight_client_for_command(args, "patent export")
+    result = export_patents_to_zip(
+        client,
+        output_path=args.output,
+        export_type=args.export_type,
+        file_format=args.format,
+        fetch_all=args.fetch_all,
+        include_editors=not args.no_editors,
+        list_kwargs=_patent_list_kwargs(args),
+        filter_kwargs={
+            "remark": args.remark,
+            "creator_email": args.creator_email,
+            "unfiled": args.unfiled,
+            "multi_folder": args.multi_folder,
+        },
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 def _add_export_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--export-type",
@@ -295,18 +698,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command_name", required=True)
 
-    def add_client_flags(p: argparse.ArgumentParser) -> None:
+    def add_client_flags(
+        p: argparse.ArgumentParser,
+        *,
+        folder_id_required: bool = False,
+        folder_id_help: str = "PatSight folder id",
+        client_name_flag: str = "--name",
+    ) -> None:
         p.add_argument(
             "--client",
             default="patsight",
             help="Registered client type (default: patsight). Register more via ClientRegistry.",
         )
-        p.add_argument("--name", default="default", help="Client instance name (token key suffix)")
+        p.add_argument(
+            client_name_flag,
+            dest="client_name",
+            default="default",
+            help="Client instance name (token key suffix)",
+        )
         p.add_argument("--workdir", help="Output directory for downloads (default: env or ~/.local/share/...)")
         p.add_argument("--account", help="OPS / PatSight account")
         p.add_argument("--password", help="OPS / PatSight password")
         p.add_argument("--token", help="Existing OPS token")
-        p.add_argument("--folder-id", type=int, help="PatSight folder id")
+        p.add_argument("--folder-id", type=int, required=folder_id_required, help=folder_id_help)
         p.add_argument(
             "--patsight-url",
             help="PatSight site origin; patent API is {origin}/patent/api (env: PATSIGHT_URL)",
@@ -339,7 +753,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sub.add_argument("--pdf-path", help="Path to patent PDF")
     p_sub.add_argument(
         "--job-type",
-        default="structureAndActivity",
+        default=None,
         choices=list(CLI_JOB_TYPE_CHOICES),
         help="Task kind (mapped to PatSight API action codes)",
     )
@@ -358,6 +772,16 @@ def build_parser() -> argparse.ArgumentParser:
             "Composite jobs (e.g. structureAndActivityReaction): semicolon-separated "
             "parts like '1-5,7;9-12,15'. Omit to process all pages."
         ),
+    )
+    p_sub.add_argument(
+        "--shared-folder-id",
+        type=int,
+        help="Top-level shared folder id for submitting directly into a shared folder",
+    )
+    p_sub.add_argument(
+        "--remark",
+        default=None,
+        help="Optional user remark saved to the created patent task (max 139 characters)",
     )
     p_sub.set_defaults(func=cmd_submit)
 
@@ -413,6 +837,246 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rep.add_argument("-o", "--output", help="Output HTML path (default: patsight_report.html)")
     p_rep.set_defaults(func=cmd_report)
+
+    p_shared = sub.add_parser("shared-folder", help="Manage PatSight shared folders")
+    shared_sub = p_shared.add_subparsers(dest="shared_folder_command", required=True)
+
+    p_shared_list = shared_sub.add_parser("list", help="List accessible shared folders")
+    add_client_flags(p_shared_list, client_name_flag="--client-name")
+    p_shared_list.add_argument("--view", type=int, default=None, help="Optional environment view: 0=main, 1=IUPAC")
+    p_shared_list.set_defaults(func=cmd_shared_folder_list)
+
+    p_shared_create = shared_sub.add_parser("create", help="Create a shared folder or sub-folder")
+    add_client_flags(p_shared_create, client_name_flag="--client-name")
+    p_shared_create.add_argument("--name", required=True, help="Shared folder name")
+    p_shared_create.add_argument("--parent-id", type=int, default=None, help="Optional parent folder id")
+    p_shared_create.add_argument("--view", type=int, default=0, help="Environment view: 0=main, 1=IUPAC")
+    p_shared_create.set_defaults(func=cmd_shared_folder_create)
+
+    p_shared_rename = shared_sub.add_parser("rename", help="Rename a shared folder")
+    add_client_flags(
+        p_shared_rename,
+        folder_id_required=True,
+        folder_id_help="Shared folder id",
+        client_name_flag="--client-name",
+    )
+    p_shared_rename.add_argument("--name", required=True, help="New shared folder name")
+    p_shared_rename.set_defaults(func=cmd_shared_folder_rename)
+
+    p_shared_delete = shared_sub.add_parser("delete", help="Delete a shared folder")
+    add_client_flags(
+        p_shared_delete,
+        folder_id_required=True,
+        folder_id_help="Shared folder id",
+        client_name_flag="--client-name",
+    )
+    p_shared_delete.set_defaults(func=cmd_shared_folder_delete)
+
+    p_members = shared_sub.add_parser("members", help="Manage top-level shared folder members")
+    members_sub = p_members.add_subparsers(dest="shared_folder_members_command", required=True)
+
+    p_members_list = members_sub.add_parser("list", help="List shared folder members")
+    add_client_flags(
+        p_members_list,
+        folder_id_required=True,
+        folder_id_help="Top-level shared folder id",
+        client_name_flag="--client-name",
+    )
+    p_members_list.set_defaults(func=cmd_shared_folder_members_list)
+
+    p_members_add = members_sub.add_parser("add", help="Add a member to a shared folder")
+    add_client_flags(
+        p_members_add,
+        folder_id_required=True,
+        folder_id_help="Top-level shared folder id",
+        client_name_flag="--client-name",
+    )
+    p_members_add.add_argument("--email", required=True, help="Member email to add")
+    p_members_add.add_argument(
+        "--role",
+        default="member",
+        choices=["admin", "member", "0", "1"],
+        help="Member role: admin/0 or member/1",
+    )
+    p_members_add.set_defaults(func=cmd_shared_folder_members_add)
+
+    p_members_remove = members_sub.add_parser("remove", help="Remove a member from a shared folder")
+    add_client_flags(
+        p_members_remove,
+        folder_id_required=True,
+        folder_id_help="Top-level shared folder id",
+        client_name_flag="--client-name",
+    )
+    p_members_remove.add_argument("--email", required=True, help="Member email to remove")
+    p_members_remove.set_defaults(func=cmd_shared_folder_members_remove)
+
+    p_members_role = members_sub.add_parser("role", help="Update a shared folder member role")
+    add_client_flags(
+        p_members_role,
+        folder_id_required=True,
+        folder_id_help="Top-level shared folder id",
+        client_name_flag="--client-name",
+    )
+    p_members_role.add_argument("--email", required=True, help="Member email to update")
+    p_members_role.add_argument(
+        "--role",
+        required=True,
+        choices=["admin", "member", "0", "1"],
+        help="New member role: admin/0 or member/1",
+    )
+    p_members_role.set_defaults(func=cmd_shared_folder_members_role)
+
+    p_patents = shared_sub.add_parser("patents", help="Manage patents in a shared folder")
+    patents_sub = p_patents.add_subparsers(dest="shared_folder_patents_command", required=True)
+
+    p_patents_list = patents_sub.add_parser("list", help="List patents in a shared folder")
+    add_client_flags(
+        p_patents_list,
+        folder_id_required=True,
+        folder_id_help="Shared folder id",
+        client_name_flag="--client-name",
+    )
+    p_patents_list.set_defaults(func=cmd_shared_folder_patents_list)
+
+    p_patents_add = patents_sub.add_parser("add", help="Add patents to a shared folder")
+    add_client_flags(
+        p_patents_add,
+        folder_id_required=True,
+        folder_id_help="Shared folder id",
+        client_name_flag="--client-name",
+    )
+    p_patents_add.add_argument("--task-id", type=int, nargs="+", required=True, help="Patent task id(s) to add")
+    p_patents_add.set_defaults(func=cmd_shared_folder_patents_add)
+
+    p_patents_remove = patents_sub.add_parser("remove", help="Remove patents from a shared folder")
+    add_client_flags(
+        p_patents_remove,
+        folder_id_required=True,
+        folder_id_help="Shared folder id",
+        client_name_flag="--client-name",
+    )
+    p_patents_remove.add_argument("--task-id", type=int, nargs="+", required=True, help="Patent task id(s) to remove")
+    p_patents_remove.set_defaults(func=cmd_shared_folder_patents_remove)
+
+    p_patent = sub.add_parser("patent", help="Query accessible patents")
+    patent_sub = p_patent.add_subparsers(dest="patent_command", required=True)
+
+    p_patent_list = patent_sub.add_parser("list", help="List accessible patents")
+    add_client_flags(p_patent_list, client_name_flag="--client-name")
+    p_patent_list.add_argument("--page", type=int, default=None, help="Page number")
+    p_patent_list.add_argument("--per-page", type=int, default=None, help="Items per page")
+    p_patent_list.add_argument("--sort-by", default=None, help="Sort field")
+    p_patent_list.add_argument("--sort-dir", default=None, choices=["asc", "desc"], help="Sort direction")
+    p_patent_list.add_argument("--status", default=None, help="Patent task status")
+    p_patent_list.add_argument("--is-collection", action="store_true", default=None, help="Filter collected patents")
+    p_patent_list.add_argument("--name", default=None, help="Keyword filter")
+    p_patent_list.add_argument("--name-field", default=None, help="Keyword field supported by backend")
+    p_patent_list.add_argument("--searched-smiles", default=None, help="SMILES search filter")
+    p_patent_list.add_argument("--view", type=int, default=None, help="Optional environment view")
+    p_patent_list.add_argument("--exclude-action", default=None, help="Backend exclude_action filter")
+    p_patent_list.add_argument(
+        "--remark",
+        default=None,
+        help="Client-side filter: remark text contains this keyword",
+    )
+    p_patent_list.add_argument(
+        "--creator-email",
+        default=None,
+        help="Client-side filter: patent owner email",
+    )
+    p_patent_list.add_argument(
+        "--unfiled",
+        action="store_true",
+        help="Client-side filter: patents with no visible folders",
+    )
+    p_patent_list.add_argument(
+        "--multi-folder",
+        action="store_true",
+        help="Client-side filter: patents visible in more than one folder",
+    )
+    p_patent_list.add_argument(
+        "--last-operated-after",
+        default=None,
+        help="Client-side filter: last operation date is on or after YYYY-MM-DD",
+    )
+    p_patent_list.add_argument(
+        "--last-operated-before",
+        default=None,
+        help="Client-side filter: last operation date is on or before YYYY-MM-DD",
+    )
+    p_patent_list.add_argument(
+        "--last-operator",
+        default=None,
+        help="Client-side filter: last operator email",
+    )
+    p_patent_list.add_argument(
+        "--fetch-all",
+        action="store_true",
+        help="Fetch all pages before applying client-side filters",
+    )
+    p_patent_list.set_defaults(func=cmd_patent_list)
+
+    p_patent_detail = patent_sub.add_parser("detail", help="Get patent detail")
+    add_client_flags(p_patent_detail, client_name_flag="--client-name")
+    p_patent_detail.add_argument("--task-id", type=int, required=True, help="Patent task id")
+    p_patent_detail.set_defaults(func=cmd_patent_detail)
+
+    p_patent_editors = patent_sub.add_parser("editors", help="List patent editors and last operation time")
+    add_client_flags(p_patent_editors, client_name_flag="--client-name")
+    p_patent_editors.add_argument("--task-id", type=int, required=True, help="Patent task id")
+    p_patent_editors.set_defaults(func=cmd_patent_editors)
+
+    p_patent_export = patent_sub.add_parser("export", help="Export filtered patents as a local zip")
+    add_client_flags(p_patent_export, client_name_flag="--client-name")
+    p_patent_export.add_argument("--zip", action="store_true", help="Create a local zip archive")
+    p_patent_export.add_argument("-o", "--output", default=None, help="Output zip path")
+    p_patent_export.add_argument("--page", type=int, default=None, help="Page number")
+    p_patent_export.add_argument("--per-page", type=int, default=None, help="Items per page")
+    p_patent_export.add_argument("--sort-by", default=None, help="Sort field")
+    p_patent_export.add_argument("--sort-dir", default=None, choices=["asc", "desc"], help="Sort direction")
+    p_patent_export.add_argument("--status", default=None, help="Patent task status")
+    p_patent_export.add_argument("--is-collection", action="store_true", default=None, help="Filter collected patents")
+    p_patent_export.add_argument("--name", default=None, help="Keyword filter")
+    p_patent_export.add_argument("--name-field", default=None, help="Keyword field supported by backend")
+    p_patent_export.add_argument("--searched-smiles", default=None, help="SMILES search filter")
+    p_patent_export.add_argument("--view", type=int, default=None, help="Optional environment view")
+    p_patent_export.add_argument("--exclude-action", default=None, help="Backend exclude_action filter")
+    p_patent_export.add_argument("--remark", default=None, help="Client-side filter: remark contains keyword")
+    p_patent_export.add_argument("--creator-email", default=None, help="Client-side filter: patent owner email")
+    p_patent_export.add_argument("--unfiled", action="store_true", help="Client-side filter: no folders")
+    p_patent_export.add_argument("--multi-folder", action="store_true", help="Client-side filter: more than one folder")
+    p_patent_export.add_argument(
+        "--last-operated-after",
+        default=None,
+        help="Client-side filter: last operation date is on or after YYYY-MM-DD",
+    )
+    p_patent_export.add_argument(
+        "--last-operated-before",
+        default=None,
+        help="Client-side filter: last operation date is on or before YYYY-MM-DD",
+    )
+    p_patent_export.add_argument("--last-operator", default=None, help="Client-side filter: last operator email")
+    p_patent_export.add_argument("--fetch-all", action="store_true", help="Fetch all pages before export")
+    p_patent_export.add_argument(
+        "--no-editors",
+        action="store_true",
+        help="Do not call editors API when building zip metadata",
+    )
+    _add_export_flags(p_patent_export)
+    p_patent_export.set_defaults(func=cmd_patent_export_zip)
+
+    p_patent_remark = patent_sub.add_parser("remark", help="Set or clear patent remark")
+    remark_sub = p_patent_remark.add_subparsers(dest="patent_remark_command", required=True)
+
+    p_patent_remark_set = remark_sub.add_parser("set", help="Set or clear a patent remark")
+    add_client_flags(p_patent_remark_set, client_name_flag="--client-name")
+    p_patent_remark_set.add_argument("--task-id", type=int, required=True, help="Patent task id")
+    p_patent_remark_set.add_argument(
+        "--remark",
+        default="",
+        help="Remark text to save; empty or omitted clears the existing remark",
+    )
+    p_patent_remark_set.set_defaults(func=cmd_patent_remark_set)
 
     return parser
 

@@ -1,3 +1,5 @@
+"""PatSight 远程任务客户端，封装认证、提交、查询、导出与共享文件夹接口。"""
+
 from __future__ import annotations
 
 import base64
@@ -201,6 +203,23 @@ def coerce_job_type_slug(value: Any) -> ResultType:
         allowed = ", ".join(sorted(JOB_TYPE_TO_API_ACTION.keys()))
         raise SubmitError(f"Unknown job_type {s!r}. Use one of: {allowed}")
     return s  # type: ignore[return-value]
+
+
+def shared_folder_role_to_api(value: Any) -> int:
+    """关键参数：(value: Any)
+    返回值：int
+    描述：将 CLI 成员角色归一化为后端约定的 0=admin、1=member。
+    """
+    if isinstance(value, int):
+        if value in {0, 1}:
+            return value
+        raise PatSightError("shared folder role must be 0/admin or 1/member.")
+    role = str(value).strip().lower()
+    if role in {"0", "admin"}:
+        return 0
+    if role in {"1", "member"}:
+        return 1
+    raise PatSightError("shared folder role must be 0/admin or 1/member.")
 
 
 CLI_JOB_TYPE_CHOICES: tuple[str, ...] = tuple(sorted(JOB_TYPE_TO_API_ACTION.keys()))
@@ -426,6 +445,7 @@ class PatSightClient(RemoteJobClient):
             file_name=file_name,
             job_type=job_type,
             pdf_slice=pdf_slice,
+            folder_id=folder_id,
         )
         if getattr(self, "job_store", None):
             existing = self.job_store.get_job_by_remote_id(cache_key, self.client_type)
@@ -437,6 +457,7 @@ class PatSightClient(RemoteJobClient):
                         file_name=file_name,
                         job_type=job_type,
                         pdf_slice=pdf_slice,
+                        folder_id=folder_id,
                     ):
                         pages_hint = pdf_slice or "all"
                         print(
@@ -695,6 +716,230 @@ class PatSightClient(RemoteJobClient):
         resp = self._request("GET", self.tasks_url, params=params)
         return self._parse_json_response(resp)
 
+    def list_shared_folders(self, view: Optional[int] = None) -> Dict[str, Any]:
+        """关键参数：(view: Optional[int])
+        返回值：Dict[str, Any]
+        描述：列出当前用户可访问的一级共享文件夹及子文件夹树。
+        """
+        params = {"view": int(view)} if view is not None else None
+        url = f"{self.config.base_url}/v2/extractor/task/folder/full"
+        resp = self._request("GET", url, params=params)
+        return self._parse_json_response(resp)
+
+    def create_shared_folder(
+        self,
+        name: str,
+        parent_id: Optional[int] = None,
+        view: int = 0,
+    ) -> Dict[str, Any]:
+        """关键参数：(name: str, parent_id: Optional[int], view: int)
+        返回值：Dict[str, Any]
+        描述：创建一级共享文件夹或继承权限的子文件夹。
+        """
+        folder_name = str(name).strip()
+        if not folder_name:
+            raise PatSightError("shared folder name is required.")
+        body: Dict[str, Any] = {"path": folder_name, "view": int(view)}
+        if parent_id is not None:
+            body["parent_id"] = int(parent_id)
+        url = f"{self.config.base_url}/v2/extractor/task/folder"
+        resp = self._request("POST", url, json=body)
+        return self._parse_json_response(resp)
+
+    def rename_shared_folder(self, folder_id: int, name: str) -> Dict[str, Any]:
+        """关键参数：(folder_id: int, name: str)
+        返回值：Dict[str, Any]
+        描述：重命名共享文件夹或其子文件夹。
+        """
+        folder_name = str(name).strip()
+        if not folder_name:
+            raise PatSightError("shared folder name is required.")
+        url = f"{self.config.base_url}/v2/extractor/task/folder/name"
+        resp = self._request("PUT", url, json={"folder_id": int(folder_id), "new_path": folder_name})
+        return self._parse_json_response(resp)
+
+    def delete_shared_folder(self, folder_id: int) -> Dict[str, Any]:
+        """关键参数：(folder_id: int)
+        返回值：Dict[str, Any]
+        描述：软删除指定共享文件夹及其子文件夹。
+        """
+        url = f"{self.config.base_url}/v2/extractor/task/folder"
+        resp = self._request("DELETE", url, json={"folder_id": int(folder_id)})
+        return self._parse_json_response(resp)
+
+    def list_shared_folder_members(self, folder_id: int) -> Dict[str, Any]:
+        """关键参数：(folder_id: int)
+        返回值：Dict[str, Any]
+        描述：查询一级共享文件夹成员列表。
+        """
+        url = f"{self.config.base_url}/v2/extractor/task/folder/{int(folder_id)}/members"
+        resp = self._request("GET", url)
+        return self._parse_json_response(resp)
+
+    def add_shared_folder_member(
+        self,
+        folder_id: int,
+        email: str,
+        role: Any = "member",
+    ) -> Dict[str, Any]:
+        """关键参数：(folder_id: int, email: str, role: Any)
+        返回值：Dict[str, Any]
+        描述：向一级共享文件夹添加 admin 或 member 成员。
+        """
+        member_email = str(email).strip()
+        if not member_email:
+            raise PatSightError("email is required for adding shared folder member.")
+        url = f"{self.config.base_url}/v2/extractor/task/folder/{int(folder_id)}/members"
+        resp = self._request(
+            "POST",
+            url,
+            json={"email": member_email, "role": shared_folder_role_to_api(role)},
+        )
+        return self._parse_json_response(resp)
+
+    def remove_shared_folder_member(self, folder_id: int, user_email: str) -> Dict[str, Any]:
+        """关键参数：(folder_id: int, user_email: str)
+        返回值：Dict[str, Any]
+        描述：调用共享文件夹成员删除接口移除指定邮箱成员。
+        """
+        email = str(user_email).strip()
+        if not email:
+            raise PatSightError("user_email is required for removing shared folder member.")
+        url = f"{self.config.base_url}/v2/extractor/task/folder/{int(folder_id)}/members"
+        resp = self._request("DELETE", url, json={"user_email": email})
+        return self._parse_json_response(resp)
+
+    def update_shared_folder_member_role(
+        self,
+        folder_id: int,
+        user_email: str,
+        role: Any,
+    ) -> Dict[str, Any]:
+        """关键参数：(folder_id: int, user_email: str, role: Any)
+        返回值：Dict[str, Any]
+        描述：修改一级共享文件夹成员角色。
+        """
+        email = str(user_email).strip()
+        if not email:
+            raise PatSightError("user_email is required for updating shared folder member role.")
+        url = f"{self.config.base_url}/v2/extractor/task/folder/{int(folder_id)}/members/role"
+        resp = self._request(
+            "PATCH",
+            url,
+            json={"user_email": email, "role": shared_folder_role_to_api(role)},
+        )
+        return self._parse_json_response(resp)
+
+    def list_shared_folder_patents(self, folder_id: int) -> Dict[str, Any]:
+        """关键参数：(folder_id: int)
+        返回值：Dict[str, Any]
+        描述：查询指定共享文件夹下的专利列表。
+        """
+        url = f"{self.config.base_url}/v2/extractor/task/folder/task/get"
+        resp = self._request("POST", url, json={"folder_id": int(folder_id)})
+        return self._parse_json_response(resp)
+
+    def add_shared_folder_patents(self, folder_id: int, task_ids: list[int]) -> Dict[str, Any]:
+        """关键参数：(folder_id: int, task_ids: list[int])
+        返回值：Dict[str, Any]
+        描述：将一组专利加入指定共享文件夹。
+        """
+        ids = [int(task_id) for task_id in task_ids]
+        if not ids:
+            raise PatSightError("task_ids is required for adding patents to shared folder.")
+        url = f"{self.config.base_url}/v2/extractor/task/folder/task/favorite"
+        resp = self._request("POST", url, json={"folder_id": int(folder_id), "task_ids": ids})
+        return self._parse_json_response(resp)
+
+    def remove_shared_folder_patents(self, folder_id: int, task_ids: list[int]) -> Dict[str, Any]:
+        """关键参数：(folder_id: int, task_ids: list[int])
+        返回值：Dict[str, Any]
+        描述：将一组专利从指定共享文件夹移出。
+        """
+        ids = [int(task_id) for task_id in task_ids]
+        if not ids:
+            raise PatSightError("task_ids is required for removing patents from shared folder.")
+        url = f"{self.config.base_url}/v2/extractor/task/folder/task/unfavorite"
+        resp = self._request("POST", url, json={"folder_id": int(folder_id), "task_ids": ids})
+        return self._parse_json_response(resp)
+
+    def list_accessible_patents(
+        self,
+        *,
+        page: Optional[int] = None,
+        per_page: Optional[int] = None,
+        sort_by: Optional[str] = None,
+        sort_dir: Optional[str] = None,
+        status: Optional[str] = None,
+        is_collection: Optional[bool] = None,
+        folder_id: Optional[int] = None,
+        name: Optional[str] = None,
+        name_field: Optional[str] = None,
+        searched_smiles: Optional[str] = None,
+        view: Optional[int] = None,
+        exclude_action: Optional[str] = None,
+        last_operator: Optional[str] = None,
+        last_operated_after: Optional[str] = None,
+        last_operated_before: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """关键参数：(page/per_page/folder_id/name/status/最后操作等筛选参数)
+        返回值：Dict[str, Any]
+        描述：分页查询当前用户可访问的全部专利或指定共享文件夹专利。
+        """
+        params: Dict[str, Any] = {}
+        optional_values: dict[str, Any] = {
+            "page": page,
+            "per_page": per_page,
+            "sort_by": sort_by,
+            "sort_dir": sort_dir,
+            "status": status,
+            "is_collection": is_collection,
+            "folder_id": folder_id,
+            "name": name,
+            "name_field": name_field,
+            "searched_smiles": searched_smiles,
+            "view": view,
+            "exclude_action": exclude_action,
+            "last_operator": last_operator,
+            "last_operated_after": last_operated_after,
+            "last_operated_before": last_operated_before,
+        }
+        for key, value in optional_values.items():
+            if value is not None and value != "":
+                params[key] = value
+        resp = self._request("GET", self.tasks_url, params=params)
+        return self._parse_json_response(resp)
+
+    def get_patent_detail(self, task_id: int) -> Dict[str, Any]:
+        """关键参数：(task_id: int)
+        返回值：Dict[str, Any]
+        描述：查询当前用户可访问的单篇专利详情。
+        """
+        url = f"{self.config.base_url}/v2/extractor/task/{int(task_id)}"
+        resp = self._request("GET", url)
+        return self._parse_json_response(resp)
+
+    def list_patent_editors(self, task_id: int) -> Dict[str, Any]:
+        """关键参数：(task_id: int)
+        返回值：Dict[str, Any]
+        描述：查询修改过专利的用户及其最后一次操作时间。
+        """
+        url = f"{self.config.base_url}/v3/extractor/task/{int(task_id)}/editors"
+        resp = self._request("GET", url)
+        return self._parse_json_response(resp)
+
+    def set_patent_remark(self, task_id: int, remarks: Optional[str] = None) -> Dict[str, Any]:
+        """关键参数：(task_id: int, remarks: Optional[str])
+        返回值：Dict[str, Any]
+        描述：为指定专利设置或清除用户备注。
+        """
+        remark_text = "" if remarks is None else str(remarks)
+        if len(remark_text) > 139:
+            raise PatSightError("remark must be at most 139 characters.")
+        url = f"{self.config.base_url}/v2/extractor/task/remarks"
+        resp = self._request("POST", url, json={"task_id": int(task_id), "remarks": remark_text})
+        return self._parse_json_response(resp)
+
     def get_task_statistics(self, task_id: str) -> Dict[str, Any]:
         url = f"{self.config.base_url}/v3/extractor/task/{task_id}/statistics"
         resp = self._request("GET", url, params={"request_id": int(time.time() * 1000)})
@@ -807,11 +1052,9 @@ class PatSightClient(RemoteJobClient):
         resp = self._request("POST", url, params=params, json=body)
         Path(self.workdir).mkdir(parents=True, exist_ok=True)
         out_name = export_filename(
-            job_type=job_type,
             export_type=resolved_type,
             file_format=resolved_format,
-            file_name=file_name,
-            task_id=task_id,
+            file_name=file_name or "",
         )
         out_path = Path(self.workdir) / out_name
         if resolved_format in {"xlsx", "sdf"}:
