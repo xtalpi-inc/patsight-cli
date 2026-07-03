@@ -878,8 +878,11 @@ class PatSightClient(RemoteJobClient):
         searched_smiles: Optional[str] = None,
         view: Optional[int] = None,
         exclude_action: Optional[str] = None,
+        last_operator: Optional[str] = None,
+        last_operated_after: Optional[str] = None,
+        last_operated_before: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """关键参数：(page/per_page/folder_id/name/status 等筛选参数)
+        """关键参数：(page/per_page/folder_id/name/status/最后操作等筛选参数)
         返回值：Dict[str, Any]
         描述：分页查询当前用户可访问的全部专利或指定共享文件夹专利。
         """
@@ -897,6 +900,9 @@ class PatSightClient(RemoteJobClient):
             "searched_smiles": searched_smiles,
             "view": view,
             "exclude_action": exclude_action,
+            "last_operator": last_operator,
+            "last_operated_after": last_operated_after,
+            "last_operated_before": last_operated_before,
         }
         for key, value in optional_values.items():
             if value is not None and value != "":
@@ -1046,11 +1052,9 @@ class PatSightClient(RemoteJobClient):
         resp = self._request("POST", url, params=params, json=body)
         Path(self.workdir).mkdir(parents=True, exist_ok=True)
         out_name = export_filename(
-            job_type=job_type,
             export_type=resolved_type,
             file_format=resolved_format,
-            file_name=file_name,
-            task_id=task_id,
+            file_name=file_name or "",
         )
         out_path = Path(self.workdir) / out_name
         if resolved_format in {"xlsx", "sdf"}:

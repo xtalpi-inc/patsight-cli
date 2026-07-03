@@ -17,7 +17,15 @@ from patsight_cli.clients.patsight import CLI_JOB_TYPE_CHOICES, PatSightClient
 from patsight_cli.config import load_yaml_config, merge_client_kwargs, resolve_profile
 from patsight_cli.exceptions import ClientError, ExportError
 from patsight_cli.export.batch_zip import export_patents_to_zip
-from patsight_cli.patent_filters import apply_patent_filters, has_client_filters, patent_rows_from_response
+from patsight_cli.patent_filters import (
+    apply_patent_filters,
+    has_client_filters,
+    has_last_operation_filters,
+    patent_rows_from_response,
+    task_matches_last_operation_filters,
+    validate_last_operation_date_filters,
+    with_patent_rows,
+)
 from patsight_cli.logging_utils import setup_logging
 from patsight_cli.registry import ClientRegistry
 from patsight_cli.reporting.html import generate_patsight_report
@@ -88,7 +96,7 @@ def load_payload(args: argparse.Namespace) -> Any:
 
 def build_common_client_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     return {
-        "name": getattr(args, "name", None),
+        "name": args.client_name,
         "workdir": getattr(args, "workdir", None),
         "account": getattr(args, "account", None),
         "token": getattr(args, "token", None),
@@ -454,6 +462,10 @@ def cmd_patent_list(args: argparse.Namespace) -> None:
     描述：分页查询当前用户可访问的专利并输出 JSON。
     """
     _require_fetch_all_for_client_filters(args, "patent list")
+    validate_last_operation_date_filters(
+        last_operated_after=args.last_operated_after,
+        last_operated_before=args.last_operated_before,
+    )
     client = create_patsight_client_for_command(args, "patent")
     response = _list_patents_for_args(client, args)
     if has_client_filters(
@@ -469,7 +481,50 @@ def cmd_patent_list(args: argparse.Namespace) -> None:
             unfiled=args.unfiled,
             multi_folder=args.multi_folder,
         )
+    if has_last_operation_filters(
+        last_operator=args.last_operator,
+        last_operated_after=args.last_operated_after,
+        last_operated_before=args.last_operated_before,
+    ):
+        response = apply_last_operation_filters(client, response, args)
     print(json.dumps(to_output_payload(response), ensure_ascii=False, indent=2))
+
+
+def row_task_id(row: dict[str, Any]) -> int | None:
+    """关键参数：(row: dict[str, Any])
+    返回值：int | None
+    描述：读取专利列表行中的数字 task id。
+    """
+    raw_id = row.get("id") or row.get("task_id")
+    if raw_id is None:
+        return None
+    try:
+        return int(raw_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def apply_last_operation_filters(
+    client: PatSightClient, response: dict[str, Any], args: argparse.Namespace
+) -> dict[str, Any]:
+    """关键参数：(client: PatSightClient, response: dict[str, Any], args: argparse.Namespace)
+    返回值：dict[str, Any]
+    描述：调用 editors 接口按最后操作人和最后操作时间过滤专利列表。
+    """
+    filtered_rows: list[dict[str, Any]] = []
+    for row in patent_rows_from_response(response):
+        task_id = row_task_id(row)
+        if task_id is None:
+            continue
+        editors_payload = client.list_patent_editors(task_id)
+        if task_matches_last_operation_filters(
+            editors_payload,
+            last_operator=args.last_operator,
+            last_operated_after=args.last_operated_after,
+            last_operated_before=args.last_operated_before,
+        ):
+            filtered_rows.append(row)
+    return with_patent_rows(response, filtered_rows)
 
 
 def _require_fetch_all_for_client_filters(args: argparse.Namespace, command_name: str) -> None:
@@ -484,6 +539,10 @@ def _require_fetch_all_for_client_filters(args: argparse.Namespace, command_name
         creator_email=getattr(args, "creator_email", None),
         unfiled=getattr(args, "unfiled", False),
         multi_folder=getattr(args, "multi_folder", False),
+    ) or has_last_operation_filters(
+        last_operator=getattr(args, "last_operator", None),
+        last_operated_after=getattr(args, "last_operated_after", None),
+        last_operated_before=getattr(args, "last_operated_before", None),
     ):
         raise ClientError(f"{command_name} client-side filters require --fetch-all.")
 
@@ -502,6 +561,9 @@ def _patent_list_kwargs(args: argparse.Namespace, *, page: int | None = None) ->
         "searched_smiles": args.searched_smiles,
         "view": args.view,
         "exclude_action": args.exclude_action,
+        "last_operator": args.last_operator,
+        "last_operated_after": args.last_operated_after,
+        "last_operated_before": args.last_operated_before,
     }
 
 
@@ -581,6 +643,10 @@ def cmd_patent_export_zip(args: argparse.Namespace) -> None:
     if not args.zip:
         raise ClientError("patent export currently requires --zip.")
     _require_fetch_all_for_client_filters(args, "patent export --zip")
+    validate_last_operation_date_filters(
+        last_operated_after=args.last_operated_after,
+        last_operated_before=args.last_operated_before,
+    )
     client = create_patsight_client_for_command(args, "patent export")
     result = export_patents_to_zip(
         client,
@@ -644,7 +710,12 @@ def build_parser() -> argparse.ArgumentParser:
             default="patsight",
             help="Registered client type (default: patsight). Register more via ClientRegistry.",
         )
-        p.add_argument(client_name_flag, dest="name", default="default", help="Client instance name (token key suffix)")
+        p.add_argument(
+            client_name_flag,
+            dest="client_name",
+            default="default",
+            help="Client instance name (token key suffix)",
+        )
         p.add_argument("--workdir", help="Output directory for downloads (default: env or ~/.local/share/...)")
         p.add_argument("--account", help="OPS / PatSight account")
         p.add_argument("--password", help="OPS / PatSight password")
@@ -924,6 +995,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Client-side filter: patents visible in more than one folder",
     )
     p_patent_list.add_argument(
+        "--last-operated-after",
+        default=None,
+        help="Client-side filter: last operation date is on or after YYYY-MM-DD",
+    )
+    p_patent_list.add_argument(
+        "--last-operated-before",
+        default=None,
+        help="Client-side filter: last operation date is on or before YYYY-MM-DD",
+    )
+    p_patent_list.add_argument(
+        "--last-operator",
+        default=None,
+        help="Client-side filter: last operator email",
+    )
+    p_patent_list.add_argument(
         "--fetch-all",
         action="store_true",
         help="Fetch all pages before applying client-side filters",
@@ -959,6 +1045,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_patent_export.add_argument("--creator-email", default=None, help="Client-side filter: patent owner email")
     p_patent_export.add_argument("--unfiled", action="store_true", help="Client-side filter: no folders")
     p_patent_export.add_argument("--multi-folder", action="store_true", help="Client-side filter: more than one folder")
+    p_patent_export.add_argument(
+        "--last-operated-after",
+        default=None,
+        help="Client-side filter: last operation date is on or after YYYY-MM-DD",
+    )
+    p_patent_export.add_argument(
+        "--last-operated-before",
+        default=None,
+        help="Client-side filter: last operation date is on or before YYYY-MM-DD",
+    )
+    p_patent_export.add_argument("--last-operator", default=None, help="Client-side filter: last operator email")
     p_patent_export.add_argument("--fetch-all", action="store_true", help="Fetch all pages before export")
     p_patent_export.add_argument(
         "--no-editors",

@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
+import re
 from typing import Any, Dict, Iterable, List
+
+from patsight_cli.exceptions import ClientError
+
+OPERATION_DATE_FORMAT_HINT = "YYYY-MM-DD, for example 2026-06-17"
 
 
 def patent_rows_from_response(response: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -131,3 +138,121 @@ def has_client_filters(
     描述：判断是否启用了客户端过滤参数。
     """
     return bool(remark or creator_email or unfiled or multi_folder)
+
+
+def parse_operation_datetime(value: str | None) -> datetime | None:
+    """关键参数：(value: str | None)
+    返回值：datetime | None
+    描述：解析后端返回的最后操作时间，统一转换为 UTC。
+    """
+    if value is None or not str(value).strip():
+        return None
+    text = str(value).strip()
+    try:
+        parsed = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def parse_operation_filter_date(value: str | None, flag_name: str) -> date | None:
+    """关键参数：(value: str | None, flag_name: str)
+    返回值：date | None
+    描述：解析用户输入的最后操作日期，只允许 YYYY-MM-DD 格式。
+    """
+    if value is None or not str(value).strip():
+        return None
+    text = str(value).strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        raise ClientError(f"{flag_name} must use date format {OPERATION_DATE_FORMAT_HINT}.")
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise ClientError(f"{flag_name} must use a valid date in format {OPERATION_DATE_FORMAT_HINT}.") from exc
+
+
+def validate_last_operation_date_filters(
+    *,
+    last_operated_after: str | None = None,
+    last_operated_before: str | None = None,
+) -> None:
+    """关键参数：(last_operated_after/last_operated_before)
+    返回值：None
+    描述：校验最后操作日期筛选参数，失败时给出用户可读错误。
+    """
+    parse_operation_filter_date(last_operated_after, "--last-operated-after")
+    parse_operation_filter_date(last_operated_before, "--last-operated-before")
+
+
+def latest_editor_record(editors_payload: Dict[str, Any]) -> tuple[Dict[str, Any] | None, datetime | None]:
+    """关键参数：(editors_payload: Dict[str, Any])
+    返回值：tuple[Dict[str, Any] | None, datetime | None]
+    描述：从 editors 响应中选出最后一次操作记录。
+    """
+    data = editors_payload.get("data") if isinstance(editors_payload, dict) else None
+    editors = data.get("editors") if isinstance(data, dict) else None
+    if not isinstance(editors, list):
+        return None, None
+
+    latest_record: Dict[str, Any] | None = None
+    latest_time: datetime | None = None
+    for editor in editors:
+        if not isinstance(editor, dict):
+            continue
+        operation_time = parse_operation_datetime(editor.get("last_operation_time"))
+        if operation_time is None:
+            continue
+        if latest_time is None or operation_time > latest_time:
+            latest_record = editor
+            latest_time = operation_time
+    return latest_record, latest_time
+
+
+def task_matches_last_operation_filters(
+    editors_payload: Dict[str, Any],
+    *,
+    last_operator: str | None = None,
+    last_operated_after: str | None = None,
+    last_operated_before: str | None = None,
+) -> bool:
+    """关键参数：(editors_payload: Dict[str, Any], last_operator/last_operated_after/last_operated_before)
+    返回值：bool
+    描述：根据最后操作人和最后操作时间范围判断任务是否匹配。
+    """
+    latest_record, latest_time = latest_editor_record(editors_payload)
+    if latest_record is None or latest_time is None:
+        return False
+
+    if last_operator:
+        operator_email = str(latest_record.get("user_email") or "")
+        expected_operator = last_operator.casefold()
+        if operator_email.casefold() != expected_operator and not operator_email.casefold().startswith(
+            expected_operator
+        ):
+            return False
+
+    after_date = parse_operation_filter_date(last_operated_after, "--last-operated-after")
+    latest_date = latest_time.date()
+    if after_date is not None and latest_date < after_date:
+        return False
+
+    before_date = parse_operation_filter_date(last_operated_before, "--last-operated-before")
+    if before_date is not None and latest_date > before_date:
+        return False
+
+    return True
+
+
+def has_last_operation_filters(
+    *,
+    last_operator: str | None = None,
+    last_operated_after: str | None = None,
+    last_operated_before: str | None = None,
+) -> bool:
+    """关键参数：(last_operator/last_operated_after/last_operated_before)
+    返回值：bool
+    描述：判断是否启用了最后操作相关筛选。
+    """
+    return bool(last_operator or last_operated_after or last_operated_before)
