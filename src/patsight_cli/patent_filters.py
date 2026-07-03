@@ -45,21 +45,47 @@ def with_patent_rows(response: Dict[str, Any], rows: Iterable[Dict[str, Any]]) -
     return copied
 
 
+def task_folder_ids(task: Dict[str, Any]) -> set[int]:
+    """关键参数：(task: Dict[str, Any])
+    返回值：set[int]
+    描述：从专利行 folders 字段提取文件夹 id 集合。
+    """
+    folders = task.get("folders")
+    if not isinstance(folders, list):
+        return set()
+    folder_ids: set[int] = set()
+    for folder in folders:
+        if not isinstance(folder, dict):
+            continue
+        raw_id = folder.get("id")
+        if raw_id is None:
+            continue
+        try:
+            folder_ids.add(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    return folder_ids
+
+
 def task_matches_filters(
     task: Dict[str, Any],
     *,
+    folder_id: int | None = None,
     remark: str | None = None,
     creator_email: str | None = None,
     unfiled: bool = False,
     multi_folder: bool = False,
 ) -> bool:
-    """关键参数：(task: Dict[str, Any], remark/creator_email/unfiled/multi_folder)
+    """关键参数：(task: Dict[str, Any], folder_id/remark/creator_email/unfiled/multi_folder)
     返回值：bool
     描述：判断单条专利是否满足客户端筛选条件。
     """
-    if remark:
-        remarks = str(task.get("remarks") or "")
-        if remark.casefold() not in remarks.casefold():
+    if folder_id is not None and folder_id not in task_folder_ids(task):
+        return False
+
+    if remark is not None:
+        remarks = str(task.get("remarks") or "").strip()
+        if remarks.casefold() != remark.strip().casefold():
             return False
 
     if creator_email:
@@ -81,6 +107,7 @@ def task_matches_filters(
 def filter_patent_rows(
     rows: Iterable[Dict[str, Any]],
     *,
+    folder_id: int | None = None,
     remark: str | None = None,
     creator_email: str | None = None,
     unfiled: bool = False,
@@ -88,13 +115,14 @@ def filter_patent_rows(
 ) -> List[Dict[str, Any]]:
     """关键参数：(rows: Iterable[Dict[str, Any]], 筛选条件)
     返回值：List[Dict[str, Any]]
-    描述：按备注、创建者和文件夹数量进行客户端过滤。
+    描述：按文件夹归属、备注、创建者和文件夹数量进行客户端过滤。
     """
     return [
         task
         for task in rows
         if task_matches_filters(
             task,
+            folder_id=folder_id,
             remark=remark,
             creator_email=creator_email,
             unfiled=unfiled,
@@ -106,6 +134,7 @@ def filter_patent_rows(
 def apply_patent_filters(
     response: Dict[str, Any],
     *,
+    folder_id: int | None = None,
     remark: str | None = None,
     creator_email: str | None = None,
     unfiled: bool = False,
@@ -118,6 +147,7 @@ def apply_patent_filters(
     rows = patent_rows_from_response(response)
     filtered = filter_patent_rows(
         rows,
+        folder_id=folder_id,
         remark=remark,
         creator_email=creator_email,
         unfiled=unfiled,

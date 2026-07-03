@@ -132,6 +132,7 @@ def collect_patents(
 
     filtered_rows = filter_patent_rows(
         rows,
+        folder_id=folder_id,
         remark=remark,
         creator_email=creator_email,
         unfiled=unfiled,
