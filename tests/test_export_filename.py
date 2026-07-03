@@ -1,66 +1,42 @@
-from patsight_cli.export_filename import export_filename, export_label
+import pytest
+
+from patsight_cli.exceptions import ExportError
+from patsight_cli.export_filename import export_filename
 
 
-def test_export_label_structure_and_activity() -> None:
-    assert export_label("structureAndActivity", "bioactivity") == "Structure and Activity"
-    assert export_label("structureAndActivity", "admet") == "Structure and Activity"
-    assert export_label("structureAndActivity", "namedStructures") == "Structure and Activity"
-    assert export_label("structure", "structures") == "Structure and Activity"
-
-
-def test_export_label_iupac() -> None:
-    assert export_label("iupac", "structures") == "IUPAC"
-    assert export_label("iupacAndStructure", "structures") == "IUPAC"
-
-
-def test_export_label_reaction() -> None:
-    assert export_label("reaction", "reactions") == "Reaction"
-    assert export_label("structureAndActivityReaction", "reactions") == "Reaction"
-
-
-def test_export_filename_structure_and_activity() -> None:
+def test_export_filename_uses_file_name_and_export_type() -> None:
     assert (
         export_filename(
-            job_type="structureAndActivity",
             export_type="bioactivity",
             file_format="csv",
             file_name="WO2004087707-part.pdf",
         )
-        == "WO2004087707-part.pdf-Structure and Activity.csv"
+        == "WO2004087707-part.pdf-bioactivity.csv"
     )
 
 
-def test_export_filename_iupac() -> None:
+def test_export_filename_named_structures() -> None:
     assert (
         export_filename(
-            job_type="iupac",
-            export_type="structures",
-            file_format="sdf",
-            file_name="patent.pdf",
-        )
-        == "patent.pdf-IUPAC.sdf"
-    )
-
-
-def test_export_filename_reaction() -> None:
-    assert (
-        export_filename(
-            job_type="reaction",
-            export_type="reactions",
+            export_type="namedStructures",
             file_format="xlsx",
-            file_name="patent.pdf",
+            file_name="WO2024102924A1",
         )
-        == "patent.pdf-Reaction.xlsx"
+        == "WO2024102924A1-namedStructures.xlsx"
     )
 
 
-def test_export_filename_fallback_to_task_id() -> None:
+def test_export_filename_sanitizes_path_separators() -> None:
     assert (
         export_filename(
-            job_type="structureAndActivity",
-            export_type="bioactivity",
-            file_format="csv",
-            task_id="task-123",
+            export_type="reactions",
+            file_format="json",
+            file_name="folder/patent.pdf",
         )
-        == "task-123-Structure and Activity.csv"
+        == "folder_patent.pdf-reactions.json"
     )
+
+
+def test_export_filename_requires_file_name() -> None:
+    with pytest.raises(ExportError, match="file_name is required"):
+        export_filename(export_type="bioactivity", file_format="csv", file_name="")

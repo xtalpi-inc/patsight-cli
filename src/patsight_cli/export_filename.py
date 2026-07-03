@@ -1,39 +1,24 @@
+"""导出文件本地命名：{file_name}-{export_type}.{format}。"""
+
 from __future__ import annotations
 
-from typing import Optional
+from patsight_cli.exceptions import ExportError
 
-JobTypeSlug = str
 ExportType = str
 FileFormat = str
 
 
-def export_label(job_type: JobTypeSlug, export_type: ExportType) -> str:
-    """Human-readable export label aligned with xinsight-patent-front."""
-    if export_type == "reactions":
-        return "Reaction"
-    if job_type in {"iupac", "iupacAndStructure"}:
-        return "IUPAC"
-    return "Structure and Activity"
-
-
-def _sanitize_base_name(value: str) -> str:
-    name = value.strip()
-    if not name:
-        return ""
-    return name.replace("/", "_").replace("\\", "_")
-
-
 def export_filename(
     *,
-    job_type: JobTypeSlug,
     export_type: ExportType,
     file_format: FileFormat,
-    file_name: Optional[str] = None,
-    task_id: Optional[str] = None,
+    file_name: str,
 ) -> str:
-    """Build export filename matching xinsight-patent-front download naming."""
-    base = _sanitize_base_name(file_name or "")
+    """关键参数：(export_type: ExportType, file_format: FileFormat, file_name: str)
+    返回值：str
+    描述：按专利 file_name 与 export_type 生成本地导出文件名。
+    """
+    base = file_name.strip().replace("/", "_").replace("\\", "_")
     if not base:
-        base = _sanitize_base_name(task_id or "") or "export"
-    label = export_label(job_type, export_type)
-    return f"{base}-{label}.{file_format}"
+        raise ExportError("file_name is required for export filename.")
+    return f"{base}-{export_type}.{file_format}"

@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from patsight_cli.patent_filters import apply_patent_filters, filter_patent_rows, patent_rows_from_response
+from patsight_cli.patent_filters import (
+    apply_patent_filters,
+    filter_patent_rows,
+    patent_rows_from_response,
+    task_matches_last_operation_filters,
+    validate_last_operation_date_filters,
+)
+from patsight_cli.exceptions import ClientError
+
+import pytest
 
 
 def sample_response() -> dict:
@@ -82,3 +91,47 @@ def test_apply_patent_filters_updates_count_without_mutating_original() -> None:
     assert filtered["data"]["count"] == 1
     assert [row["id"] for row in filtered["data"]["task_info"]] == [3]
     assert original["data"]["count"] == 3
+
+
+def test_task_matches_last_operation_filters() -> None:
+    """关键参数：无
+    返回值：None
+    描述：验证最后操作人和最后操作时间筛选。
+    """
+    editors_payload = {
+        "code": 1,
+        "data": {
+            "editors": [
+                {
+                    "user_email": "first@example.com",
+                    "last_operation_time": "Thu, 25 Jun 2026 05:34:41 GMT",
+                },
+                {
+                    "user_email": "last@example.com",
+                    "last_operation_time": "Thu, 25 Jun 2026 06:34:41 GMT",
+                },
+            ]
+        },
+    }
+
+    assert task_matches_last_operation_filters(
+        editors_payload,
+        last_operator="last@example.com",
+        last_operated_after="2026-06-25",
+        last_operated_before="2026-06-25",
+    )
+    assert not task_matches_last_operation_filters(editors_payload, last_operator="first@example.com")
+    assert not task_matches_last_operation_filters(
+        editors_payload,
+        last_operated_after="2026-06-26",
+    )
+
+
+@pytest.mark.parametrize("value", ["2026-6-17", "2026-06-17T00:00:00Z", "20026-06-17"])
+def test_validate_last_operation_date_filters_rejects_invalid_formats(value: str) -> None:
+    """关键参数：(value: str)
+    返回值：None
+    描述：验证最后操作日期只接受 YYYY-MM-DD 格式。
+    """
+    with pytest.raises(ClientError, match="YYYY-MM-DD"):
+        validate_last_operation_date_filters(last_operated_after=value)

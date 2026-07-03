@@ -64,7 +64,18 @@ class FakeExportClient:
         返回值：dict[str, Any]
         描述：返回固定 editors 数据。
         """
-        return {"code": 1, "data": {"editors": [{"user_email": f"user-{task_id}@example.com"}]}}
+        email = "owner@example.com" if task_id == 101 else "other@example.com"
+        return {
+            "code": 1,
+            "data": {
+                "editors": [
+                    {
+                        "user_email": email,
+                        "last_operation_time": "Thu, 25 Jun 2026 05:34:41 GMT",
+                    }
+                ]
+            },
+        }
 
     def export_task(self, *args: Any, **kwargs: Any) -> str:
         """关键参数：(*args: Any, **kwargs: Any)
@@ -72,7 +83,7 @@ class FakeExportClient:
         描述：创建一个假导出文件并返回路径。
         """
         self.export_calls.append((args, kwargs))
-        path = Path(self.workdir) / f"{args[0]}-export.csv"
+        path = Path(self.workdir) / f"{args[0]}-{kwargs.get('export_type')}-export.csv"
         path.write_text("id,value\n1,ok\n", encoding="utf-8")
         return str(path)
 
@@ -86,6 +97,7 @@ def test_export_patents_to_zip_writes_manifest_and_exports_done_tasks(tmp_path: 
     result = export_patents_to_zip(
         client,
         output_path=str(tmp_path / "batch.zip"),
+        export_type="bioactivity",
         list_kwargs={"folder_id": 17, "per_page": 10},
         filter_kwargs={"creator_email": "owner@example.com"},
     )
@@ -108,6 +120,9 @@ def test_export_patents_to_zip_writes_manifest_and_exports_done_tasks(tmp_path: 
             "searched_smiles": None,
             "view": None,
             "exclude_action": None,
+            "last_operator": None,
+            "last_operated_after": None,
+            "last_operated_before": None,
         }
     ]
 
@@ -115,12 +130,62 @@ def test_export_patents_to_zip_writes_manifest_and_exports_done_tasks(tmp_path: 
         names = set(archive.namelist())
         assert "manifest.json" in names
         assert "metadata.json" in names
-        assert "exports/101-export.csv" in names
+        assert "exports/101-bioactivity-export.csv" in names
         manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
         assert manifest["exported_count"] == 1
         assert manifest["skipped_count"] == 1
         assert manifest["tasks"][0]["metadata"]["remarks"] == "Priority"
         assert manifest["tasks"][1]["reason"] == "status=Queueing"
+
+
+def test_export_patents_to_zip_exports_all_types_by_default(tmp_path: Path) -> None:
+    """关键参数：(tmp_path: Path)
+    返回值：None
+    描述：验证未指定 export_type 时会导出任务支持的全部类型。
+    """
+    client = FakeExportClient(tmp_path)
+    result = export_patents_to_zip(
+        client,
+        output_path=str(tmp_path / "all-types.zip"),
+        filter_kwargs={"creator_email": "owner@example.com"},
+    )
+
+    assert result["task_count"] == 2
+    assert result["exported_count"] == 3
+    assert result["skipped_count"] == 1
+    assert [call[1]["export_type"] for call in client.export_calls] == [
+        "admet",
+        "bioactivity",
+        "namedStructures",
+    ]
+
+    with zipfile.ZipFile(result["zip_path"]) as archive:
+        manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+        exported_files = manifest["tasks"][0]["exported_files"]
+        assert [item["export_type"] for item in exported_files] == [
+            "admet",
+            "bioactivity",
+            "namedStructures",
+        ]
+
+
+def test_export_patents_to_zip_filters_by_last_operator(tmp_path: Path) -> None:
+    """关键参数：(tmp_path: Path)
+    返回值：None
+    描述：验证 zip 导出会按最后操作人过滤任务。
+    """
+    client = FakeExportClient(tmp_path)
+    result = export_patents_to_zip(
+        client,
+        output_path=str(tmp_path / "last-operator.zip"),
+        export_type="bioactivity",
+        fetch_all=True,
+        filter_kwargs={"last_operator": "owner@example.com"},
+    )
+
+    assert result["task_count"] == 1
+    assert result["exported_count"] == 1
+    assert client.export_calls[0][0][0] == "101"
 
 
 def test_patent_export_parser_accepts_zip_flags() -> None:
@@ -139,6 +204,12 @@ def test_patent_export_parser_accepts_zip_flags() -> None:
             "Priority",
             "--creator-email",
             "owner@example.com",
+            "--last-operator",
+            "owner@example.com",
+            "--last-operated-after",
+            "2026-06-01",
+            "--last-operated-before",
+            "2026-07-01",
             "--fetch-all",
             "--format",
             "csv",
@@ -152,6 +223,9 @@ def test_patent_export_parser_accepts_zip_flags() -> None:
     assert args.folder_id == 17
     assert args.remark == "Priority"
     assert args.creator_email == "owner@example.com"
+    assert args.last_operator == "owner@example.com"
+    assert args.last_operated_after == "2026-06-01"
+    assert args.last_operated_before == "2026-07-01"
     assert args.fetch_all is True
     assert args.format == "csv"
     assert args.output == "out.zip"

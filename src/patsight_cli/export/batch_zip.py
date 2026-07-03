@@ -10,7 +10,14 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from patsight_cli.clients.patsight import api_action_to_job_type, normalize_api_action_string
 from patsight_cli.exceptions import ExportError
-from patsight_cli.patent_filters import filter_patent_rows, patent_rows_from_response
+from patsight_cli.export_options import export_type_choices_for_job
+from patsight_cli.patent_filters import (
+    filter_patent_rows,
+    has_last_operation_filters,
+    patent_rows_from_response,
+    task_matches_last_operation_filters,
+    validate_last_operation_date_filters,
+)
 
 FINISHED_STATUS = {"done", "completed", "success", "finished"}
 
@@ -44,6 +51,20 @@ def job_type_from_row(row: Dict[str, Any]) -> str:
     return api_action_to_job_type(normalized)
 
 
+def export_types_for_row(row: Dict[str, Any], requested_export_type: str | None) -> tuple[str, ...]:
+    """关键参数：(row: Dict[str, Any], requested_export_type: str | None)
+    返回值：tuple[str, ...]
+    描述：确定单条任务需要导出的数据类型，未指定时导出该任务支持的全部类型。
+    """
+    if requested_export_type:
+        return (requested_export_type,)
+    job_type = job_type_from_row(row)
+    export_types = export_type_choices_for_job(job_type)
+    if not export_types:
+        raise ExportError(f"Unsupported job_type for export: {job_type!r}.")
+    return export_types
+
+
 def collect_patents(
     client: Any,
     *,
@@ -64,11 +85,18 @@ def collect_patents(
     creator_email: Optional[str] = None,
     unfiled: bool = False,
     multi_folder: bool = False,
+    last_operator: Optional[str] = None,
+    last_operated_after: Optional[str] = None,
+    last_operated_before: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """关键参数：(client: Any, list/filter 参数)
     返回值：List[Dict[str, Any]]
     描述：分页收集专利列表并应用客户端过滤。
     """
+    validate_last_operation_date_filters(
+        last_operated_after=last_operated_after,
+        last_operated_before=last_operated_before,
+    )
     per_page_value = per_page or (100 if fetch_all else None)
     start_page = page or 1
     max_pages = getattr(getattr(client, "config", None), "list_tasks_max_pages", 500)
@@ -89,6 +117,9 @@ def collect_patents(
             searched_smiles=searched_smiles,
             view=view,
             exclude_action=exclude_action,
+            last_operator=last_operator,
+            last_operated_after=last_operated_after,
+            last_operated_before=last_operated_before,
         )
         page_rows = patent_rows_from_response(response)
         rows.extend(page_rows)
@@ -99,13 +130,31 @@ def collect_patents(
         if isinstance(total, int) and len(rows) >= total:
             break
 
-    return filter_patent_rows(
+    filtered_rows = filter_patent_rows(
         rows,
         remark=remark,
         creator_email=creator_email,
         unfiled=unfiled,
         multi_folder=multi_folder,
     )
+    if not has_last_operation_filters(
+        last_operator=last_operator,
+        last_operated_after=last_operated_after,
+        last_operated_before=last_operated_before,
+    ):
+        return filtered_rows
+
+    operation_filtered_rows: list[dict[str, Any]] = []
+    for row in filtered_rows:
+        editors_payload = client.list_patent_editors(int(task_id_from_row(row)))
+        if task_matches_last_operation_filters(
+            editors_payload,
+            last_operator=last_operator,
+            last_operated_after=last_operated_after,
+            last_operated_before=last_operated_before,
+        ):
+            operation_filtered_rows.append(row)
+    return operation_filtered_rows
 
 
 def metadata_for_row(row: Dict[str, Any], editors: Any = None) -> Dict[str, Any]:
@@ -206,29 +255,41 @@ def export_patents_to_zip(
                 manifest["tasks"].append(export_record)
                 continue
 
-            try:
-                exported_path = Path(
-                    client.export_task(
-                        task_id,
-                        job_type=job_type_from_row(row),
-                        export_type=export_type,
-                        file_format=file_format,
-                        file_name=str(row.get("file_name") or ""),
-                        task_action=str(row.get("action") or row.get("action_type") or "0"),
+            job_type = job_type_from_row(row)
+            export_record["exported_files"] = []
+            export_record["export_errors"] = []
+            for target_export_type in export_types_for_row(row, export_type):
+                try:
+                    exported_path = Path(
+                        client.export_task(
+                            task_id,
+                            job_type=job_type,
+                            export_type=target_export_type,
+                            file_format=file_format,
+                            file_name=str(row.get("file_name") or ""),
+                            task_action=str(row.get("action") or row.get("action_type") or "0"),
+                        )
                     )
-                )
-                if exported_path.is_file():
-                    arcname = safe_arcname(exported_path, used_names)
-                    zip_file.write(exported_path, arcname)
-                    export_record["exported_file"] = arcname
-                    manifest["exported_count"] += 1
-                else:
-                    raise ExportError(f"exported file does not exist: {exported_path}")
-            except Exception as exc:  # noqa: BLE001
-                warning = f"export failed for task_id={task_id}: {exc}"
-                manifest["warnings"].append(warning)
+                    if exported_path.is_file():
+                        arcname = safe_arcname(exported_path, used_names)
+                        zip_file.write(exported_path, arcname)
+                        export_record["exported_files"].append(
+                            {"export_type": target_export_type, "file": arcname}
+                        )
+                        manifest["exported_count"] += 1
+                    else:
+                        raise ExportError(f"exported file does not exist: {exported_path}")
+                except Exception as exc:  # noqa: BLE001
+                    warning = f"export failed for task_id={task_id} export_type={target_export_type}: {exc}"
+                    export_record["export_errors"].append(str(exc))
+                    manifest["warnings"].append(warning)
+
+            if export_record.get("exported_files"):
+                if len(export_record["exported_files"]) == 1:
+                    export_record["exported_file"] = export_record["exported_files"][0]["file"]
+            else:
                 export_record["skipped"] = True
-                export_record["reason"] = str(exc)
+                export_record["reason"] = "; ".join(export_record["export_errors"]) or "no files exported"
                 manifest["skipped_count"] += 1
 
             manifest["tasks"].append(export_record)

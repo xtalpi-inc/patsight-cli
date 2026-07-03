@@ -164,6 +164,53 @@ class FakePatSightClient:
         return self.record("list_patent_editors", task_id)
 
 
+class FakeLastOperationClient(FakePatSightClient):
+    """关键参数：无
+    返回值：FakeLastOperationClient
+    描述：模拟可按最后操作记录筛选的专利列表客户端。
+    """
+
+    def list_accessible_patents(self, **kwargs: Any) -> dict[str, Any]:
+        """关键参数：(**kwargs: Any)
+        返回值：dict[str, Any]
+        描述：返回两条完成任务以验证最后操作筛选。
+        """
+        self.calls.append(("list_accessible_patents", (), kwargs))
+        return {
+            "code": 1,
+            "data": {
+                "count": 2,
+                "task_info": [
+                    {"id": 101, "status": "Done", "file_name": "A"},
+                    {"id": 102, "status": "Done", "file_name": "B"},
+                ],
+            },
+            "error": "",
+            "message": "ok",
+        }
+
+    def list_patent_editors(self, task_id: int) -> dict[str, Any]:
+        """关键参数：(task_id: int)
+        返回值：dict[str, Any]
+        描述：返回不同最后操作人用于筛选。
+        """
+        self.calls.append(("list_patent_editors", (task_id,), {}))
+        email = "owner@example.com" if task_id == 101 else "other@example.com"
+        return {
+            "code": 1,
+            "data": {
+                "editors": [
+                    {
+                        "user_email": email,
+                        "last_operation_time": "Thu, 25 Jun 2026 05:34:41 GMT",
+                    }
+                ]
+            },
+            "error": "",
+            "message": "ok",
+        }
+
+
 def build_uninitialized_client() -> tuple[PatSightClient, list[dict[str, Any]]]:
     """关键参数：无
     返回值：tuple[PatSightClient, list[dict[str, Any]]]
@@ -219,6 +266,9 @@ def test_client_v226_required_methods_use_openapi_contracts() -> None:
         name="demo",
         name_field="title",
         view=0,
+        last_operator="owner@example.com",
+        last_operated_after="2026-06-01",
+        last_operated_before="2026-07-01",
     )
     client.get_patent_detail(101)
     client.list_patent_editors(101)
@@ -289,6 +339,9 @@ def test_client_v226_required_methods_use_openapi_contracts() -> None:
                 "name": "demo",
                 "name_field": "title",
                 "view": 0,
+                "last_operator": "owner@example.com",
+                "last_operated_after": "2026-06-01",
+                "last_operated_before": "2026-07-01",
             },
         },
         {
@@ -415,6 +468,9 @@ def test_cli_patent_list_handler_passes_supported_filters(monkeypatch: Any, caps
         searched_smiles=None,
         view=0,
         exclude_action=None,
+        last_operator=None,
+        last_operated_after=None,
+        last_operated_before=None,
         remark=None,
         creator_email=None,
         unfiled=False,
@@ -442,10 +498,104 @@ def test_cli_patent_list_handler_passes_supported_filters(monkeypatch: Any, caps
                 "searched_smiles": None,
                 "view": 0,
                 "exclude_action": None,
+                "last_operator": None,
+                "last_operated_after": None,
+                "last_operated_before": None,
             },
         )
     ]
     assert json.loads(capsys.readouterr().out)["code"] == 1
+
+
+def test_patent_list_parser_separates_client_name_from_keyword_filter() -> None:
+    """关键参数：无
+    返回值：None
+    描述：验证 patent list 未传 --name 时不会把 client_name 默认值误当作筛选关键字。
+    """
+    parser = cli_main.build_parser()
+
+    default_args = parser.parse_args(["patent", "list", "--fetch-all"])
+    assert default_args.client_name == "default"
+    assert default_args.name is None
+
+    filtered_args = parser.parse_args(["patent", "list", "--name", "demo", "--client-name", "ProjectA"])
+    assert filtered_args.client_name == "ProjectA"
+    assert filtered_args.name == "demo"
+
+
+def test_patent_list_parser_accepts_last_operation_filters() -> None:
+    """关键参数：无
+    返回值：None
+    描述：验证 patent list 支持最后操作时间和操作人筛选参数。
+    """
+    parser = cli_main.build_parser()
+
+    args = parser.parse_args(
+        [
+            "patent",
+            "list",
+            "--last-operator",
+            "owner@example.com",
+            "--last-operated-after",
+            "2026-06-01",
+            "--last-operated-before",
+            "2026-07-01",
+            "--fetch-all",
+        ]
+    )
+
+    assert args.last_operator == "owner@example.com"
+    assert args.last_operated_after == "2026-06-01"
+    assert args.last_operated_before == "2026-07-01"
+
+
+def test_patent_list_without_name_filter_omits_name_param(monkeypatch: Any, capsys: Any) -> None:
+    """关键参数：(monkeypatch: Any, capsys: Any)
+    返回值：None
+    描述：验证 patent list 默认不会向后端传递 name=default。
+    """
+    fake_client = FakePatSightClient()
+    monkeypatch.setattr(cli_main, "create_client_from_args", lambda args: fake_client)
+    monkeypatch.setattr(cli_main, "PatSightClient", FakePatSightClient)
+    args = cli_main.build_parser().parse_args(["patent", "list", "--fetch-all", "--per-page", "100"])
+
+    cli_main.cmd_patent_list(args)
+
+    assert fake_client.calls
+    _, _, kwargs = fake_client.calls[0]
+    assert kwargs.get("name") is None
+    assert kwargs["page"] == 1
+    assert kwargs["per_page"] == 100
+
+
+def test_patent_list_filters_by_last_operator(monkeypatch: Any, capsys: Any) -> None:
+    """关键参数：(monkeypatch: Any, capsys: Any)
+    返回值：None
+    描述：验证最后操作人筛选会调用 editors 并同步列表 count。
+    """
+    fake_client = FakeLastOperationClient()
+    monkeypatch.setattr(cli_main, "create_client_from_args", lambda args: fake_client)
+    monkeypatch.setattr(cli_main, "PatSightClient", FakeLastOperationClient)
+    args = cli_main.build_parser().parse_args(
+        [
+            "patent",
+            "list",
+            "--last-operator",
+            "owner@example.com",
+            "--fetch-all",
+        ]
+    )
+
+    cli_main.cmd_patent_list(args)
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["data"]["count"] == 1
+    assert output["data"]["task_info"][0]["id"] == 101
+    assert [call[0] for call in fake_client.calls] == [
+        "list_accessible_patents",
+        "list_patent_editors",
+        "list_patent_editors",
+    ]
 
 
 def test_patent_list_client_filters_require_fetch_all() -> None:
@@ -459,6 +609,9 @@ def test_patent_list_client_filters_require_fetch_all() -> None:
         creator_email=None,
         unfiled=False,
         multi_folder=False,
+        last_operator=None,
+        last_operated_after=None,
+        last_operated_before=None,
     )
 
     with pytest.raises(ClientError, match="--fetch-all"):
@@ -477,10 +630,33 @@ def test_patent_export_client_filters_require_fetch_all() -> None:
         creator_email="owner@example.com",
         unfiled=False,
         multi_folder=False,
+        last_operator=None,
+        last_operated_after=None,
+        last_operated_before=None,
     )
 
     with pytest.raises(ClientError, match="--fetch-all"):
         cli_main.cmd_patent_export_zip(args)
+
+
+def test_patent_last_operation_filters_require_fetch_all() -> None:
+    """关键参数：无
+    返回值：None
+    描述：验证最后操作筛选必须显式抓取完整分页数据。
+    """
+    args = argparse.Namespace(
+        fetch_all=False,
+        remark=None,
+        creator_email=None,
+        unfiled=False,
+        multi_folder=False,
+        last_operator="owner@example.com",
+        last_operated_after=None,
+        last_operated_before=None,
+    )
+
+    with pytest.raises(ClientError, match="--fetch-all"):
+        cli_main.cmd_patent_list(args)
 
 
 @pytest.mark.parametrize(
