@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import logging
+import sys
 from types import SimpleNamespace
 from typing import Any
 
@@ -206,6 +208,31 @@ class FakeLastOperationClient(FakePatSightClient):
                     }
                 ]
             },
+            "error": "",
+            "message": "ok",
+        }
+
+
+class EdgeCasePatentListClient(FakePatSightClient):
+    """关键参数：(task_row: dict[str, Any])
+    返回值：EdgeCasePatentListClient
+    描述：返回包含特殊字符的专利列表数据以验证 stdout JSON 契约。
+    """
+
+    def __init__(self, task_row: dict[str, Any]) -> None:
+        super().__init__()
+        self.task_row = task_row
+
+    def list_accessible_patents(self, **kwargs: Any) -> dict[str, Any]:
+        """关键参数：(**kwargs: Any)
+        返回值：dict[str, Any]
+        描述：记录查询参数并返回特殊字符专利列表。
+        """
+        logging.getLogger("patsight_cli.tests").warning("diagnostic log should stay off stdout")
+        self.calls.append(("list_accessible_patents", (), kwargs))
+        return {
+            "code": 1,
+            "data": {"count": 1, "task_info": [self.task_row]},
             "error": "",
             "message": "ok",
         }
@@ -566,6 +593,48 @@ def test_patent_list_without_name_filter_omits_name_param(monkeypatch: Any, caps
     assert kwargs.get("name") is None
     assert kwargs["page"] == 1
     assert kwargs["per_page"] == 100
+
+
+def test_patent_list_stdout_is_valid_json_with_unicode_and_escapes(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    """关键参数：(monkeypatch: Any, capsys: Any)
+    返回值：None
+    描述：验证 patent list 在 verbose 和特殊字符字段下仍只向 stdout 输出合法 JSON。
+    """
+    special_remark = '中文备注 "quoted"\nsecond line\twith tab\x08backspace'
+    long_abstract = "长文本段落-" + "稳定序列化" * 40
+    task_row = {
+        "id": 2071532118869155840,
+        "title": "含中文标题与引号 \"CN patent\"",
+        "abstract": long_abstract,
+        "remarks": special_remark,
+        "error_msg": "backend message with comma, colon: ok",
+    }
+    fake_client = EdgeCasePatentListClient(task_row)
+    root_logger = logging.getLogger()
+    monkeypatch.setattr(root_logger, "handlers", [])
+    monkeypatch.setattr(cli_main, "create_client_from_args", lambda args: fake_client)
+    monkeypatch.setattr(cli_main, "PatSightClient", EdgeCasePatentListClient)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["patsight-cli", "--verbose", "patent", "list", "--fetch-all"],
+    )
+
+    cli_main.main()
+
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    output_row = output["data"]["task_info"][0]
+    assert output_row["title"] == task_row["title"]
+    assert output_row["abstract"] == long_abstract
+    assert output_row["remarks"] == special_remark
+    assert "中文备注" in captured.out
+    assert "\\u4e2d" not in captured.out
+    assert '\\"quoted\\"' in captured.out
+    assert "\\nsecond line\\twith tab\\bbackspace" in captured.out
+    assert "diagnostic log should stay off stdout" not in captured.out
 
 
 def test_patent_list_filters_by_last_operator(monkeypatch: Any, capsys: Any) -> None:
