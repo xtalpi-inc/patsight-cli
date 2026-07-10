@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import io
 import json
 import logging
 import sys
@@ -635,6 +636,42 @@ def test_patent_list_stdout_is_valid_json_with_unicode_and_escapes(
     assert '\\"quoted\\"' in captured.out
     assert "\\nsecond line\\twith tab\\bbackspace" in captured.out
     assert "diagnostic log should stay off stdout" not in captured.out
+
+
+def test_patent_list_stdout_bytes_are_utf8_under_cp936_console(monkeypatch: Any) -> None:
+    """关键参数：(monkeypatch: Any)
+    返回值：None
+    描述：模拟 CP936 控制台时，patent list 仍以 UTF-8 字节写出可解析 JSON。
+    """
+    special_remark = "中文备注与标题"
+    task_row = {
+        "id": 2071532118869155840,
+        "title": "含中文标题",
+        "remarks": special_remark,
+    }
+    fake_client = EdgeCasePatentListClient(task_row)
+    monkeypatch.setattr(cli_main, "create_client_from_args", lambda args: fake_client)
+    monkeypatch.setattr(cli_main, "PatSightClient", EdgeCasePatentListClient)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["patsight-cli", "patent", "list", "--fetch-all"],
+    )
+
+    raw_buffer = io.BytesIO()
+    cp936_stdout = io.TextIOWrapper(raw_buffer, encoding="cp936", errors="strict", newline="\n")
+    monkeypatch.setattr(sys, "stdout", cp936_stdout)
+
+    cli_main.main()
+    cp936_stdout.flush()
+
+    assert sys.stdout.encoding.lower().replace("-", "") == "utf8"
+    raw_bytes = raw_buffer.getvalue()
+    decoded = raw_bytes.decode("utf-8")
+    output = json.loads(decoded)
+    assert output["data"]["task_info"][0]["remarks"] == special_remark
+    assert "中文备注".encode("utf-8") in raw_bytes
+    assert "中文备注".encode("cp936") not in raw_bytes
 
 
 def test_patent_list_filters_by_last_operator(monkeypatch: Any, capsys: Any) -> None:

@@ -26,7 +26,7 @@ from patsight_cli.patent_filters import (
     validate_last_operation_date_filters,
     with_patent_rows,
 )
-from patsight_cli.logging_utils import setup_logging
+from patsight_cli.logging_utils import configure_stdout_utf8, setup_logging
 from patsight_cli.registry import ClientRegistry
 from patsight_cli.reporting.html import generate_patsight_report
 from patsight_cli.store import JobStore
@@ -1087,6 +1087,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    configure_stdout_utf8()
     parser = build_parser()
     args = parser.parse_args()
     setup_logging(args.verbose)

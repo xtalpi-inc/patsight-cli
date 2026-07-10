@@ -1,7 +1,14 @@
-"""配置 CLI 日志输出，保持 stdout 仅用于机器可读结果。"""
+"""配置 CLI 日志输出，并保证 stdout 以 UTF-8 写出机器可读结果。"""
 
 import logging
 import sys
+
+
+def configure_stdout_utf8() -> None:
+    """描述：将 stdout 重配置为 UTF-8，避免 Windows 控制台默认编码破坏 JSON。"""
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(encoding="utf-8", errors="replace")
 
 
 def setup_logging(verbose: bool = False) -> None:
