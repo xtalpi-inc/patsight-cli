@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from patsight_cli.export.batch_zip import export_patents_to_zip
+from patsight_cli.export_filename import export_filename
 
 cli_main = importlib.import_module("patsight_cli.cli.main")
 
@@ -41,7 +42,7 @@ class FakeExportClient:
                         "id": 101,
                         "action": "0",
                         "status": "done",
-                        "file_name": "done-patent",
+                        "file_name": "WO2022233302 - 生物活性",
                         "creator": "owner@example.com",
                         "remarks": "Priority",
                         "folders": [{"id": 17, "path": "Project A"}],
@@ -80,10 +81,16 @@ class FakeExportClient:
     def export_task(self, *args: Any, **kwargs: Any) -> str:
         """关键参数：(*args: Any, **kwargs: Any)
         返回值：str
-        描述：创建一个假导出文件并返回路径。
+        描述：按生产命名规则创建含中文的假导出文件并返回路径。
         """
         self.export_calls.append((args, kwargs))
-        path = Path(self.workdir) / f"{args[0]}-{kwargs.get('export_type')}-export.csv"
+        file_name = str(kwargs.get("file_name") or f"{args[0]}")
+        out_name = export_filename(
+            export_type=str(kwargs.get("export_type") or "bioactivity"),
+            file_format=str(kwargs.get("file_format") or "csv"),
+            file_name=file_name,
+        )
+        path = Path(self.workdir) / out_name
         path.write_text("id,value\n1,ok\n", encoding="utf-8")
         return str(path)
 
@@ -130,12 +137,17 @@ def test_export_patents_to_zip_writes_manifest_and_exports_done_tasks(tmp_path: 
         names = set(archive.namelist())
         assert "manifest.json" in names
         assert "metadata.json" in names
-        assert "exports/101-bioactivity-export.csv" in names
+        assert "exports/101-bioactivity.csv" in names
+        assert all(name.isascii() for name in names if name.startswith("exports/"))
+        assert not any("生物活性" in name for name in names)
         manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
         assert manifest["exported_count"] == 1
         assert manifest["skipped_count"] == 1
         assert manifest["tasks"][0]["metadata"]["remarks"] == "Priority"
+        assert manifest["tasks"][0]["metadata"]["file_name"] == "WO2022233302 - 生物活性"
+        assert manifest["tasks"][0]["exported_file"] == "exports/101-bioactivity.csv"
         assert manifest["tasks"][1]["reason"] == "status=Queueing"
+        assert archive.read("exports/101-bioactivity.csv").decode("utf-8").replace("\r\n", "\n") == "id,value\n1,ok\n"
 
 
 def test_export_patents_to_zip_exports_all_types_by_default(tmp_path: Path) -> None:
@@ -186,6 +198,29 @@ def test_export_patents_to_zip_filters_by_last_operator(tmp_path: Path) -> None:
     assert result["task_count"] == 1
     assert result["exported_count"] == 1
     assert client.export_calls[0][0][0] == "101"
+
+
+def test_export_patents_to_zip_uses_ascii_arcnames_for_chinese_file_name(tmp_path: Path) -> None:
+    """关键参数：(tmp_path: Path)
+    返回值：None
+    描述：验证中文专利名只保留在 metadata，zip 条目使用 ASCII 稳定名。
+    """
+    client = FakeExportClient(tmp_path)
+    result = export_patents_to_zip(
+        client,
+        output_path=str(tmp_path / "chinese-name.zip"),
+        export_type="bioactivity",
+        filter_kwargs={"creator_email": "owner@example.com"},
+    )
+
+    with zipfile.ZipFile(result["zip_path"]) as archive:
+        export_names = [name for name in archive.namelist() if name.startswith("exports/")]
+        assert export_names == ["exports/101-bioactivity.csv"]
+        assert all(name.isascii() for name in export_names)
+        manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+        assert manifest["tasks"][0]["metadata"]["file_name"] == "WO2022233302 - 生物活性"
+        metadata = json.loads(archive.read("metadata.json").decode("utf-8"))
+        assert metadata[0]["file_name"] == "WO2022233302 - 生物活性"
 
 
 def test_patent_export_parser_accepts_zip_flags() -> None:

@@ -183,13 +183,34 @@ def metadata_for_row(row: Dict[str, Any], editors: Any = None) -> Dict[str, Any]
 def safe_arcname(path: Path, used_names: set[str]) -> str:
     """关键参数：(path: Path, used_names: set[str])
     返回值：str
-    描述：生成 zip 内唯一文件名。
+    描述：按本地文件名生成 zip 内唯一条目名（测试/扩展用）。
     """
     base_name = path.name
     candidate = base_name
     index = 2
     while candidate in used_names:
         candidate = f"{path.stem}-{index}{path.suffix}"
+        index += 1
+    used_names.add(candidate)
+    return f"exports/{candidate}"
+
+
+def stable_export_arcname(
+    *,
+    task_id: str,
+    export_type: str,
+    file_suffix: str,
+    used_names: set[str],
+) -> str:
+    """关键参数：(task_id/export_type/file_suffix/used_names)
+    返回值：str
+    描述：生成纯 ASCII 的 zip 导出条目名，避免中文文件名在解压工具中乱码。
+    """
+    suffix = file_suffix if file_suffix.startswith(".") or not file_suffix else f".{file_suffix}"
+    candidate = f"{task_id}-{export_type}{suffix}"
+    index = 2
+    while candidate in used_names:
+        candidate = f"{task_id}-{export_type}-{index}{suffix}"
         index += 1
     used_names.add(candidate)
     return f"exports/{candidate}"
@@ -271,7 +292,12 @@ def export_patents_to_zip(
                         )
                     )
                     if exported_path.is_file():
-                        arcname = safe_arcname(exported_path, used_names)
+                        arcname = stable_export_arcname(
+                            task_id=task_id,
+                            export_type=target_export_type,
+                            file_suffix=exported_path.suffix,
+                            used_names=used_names,
+                        )
                         zip_file.write(exported_path, arcname)
                         export_record["exported_files"].append(
                             {"export_type": target_export_type, "file": arcname}
