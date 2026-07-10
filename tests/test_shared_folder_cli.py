@@ -673,6 +673,7 @@ def test_patent_list_stdout_bytes_are_utf8_under_cp936_console(monkeypatch: Any)
     assert "中文备注".encode("utf-8") in raw_bytes
     assert "中文备注".encode("cp936") not in raw_bytes
 
+
 def test_patent_list_filters_by_last_operator(monkeypatch: Any, capsys: Any) -> None:
     """关键参数：(monkeypatch: Any, capsys: Any)
     返回值：None

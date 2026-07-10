@@ -110,9 +110,9 @@ def test_export_patents_to_zip_writes_manifest_and_exports_done_tasks(tmp_path: 
     )
 
     assert result["ok"] is True
-    assert result["task_count"] == 2
+    assert result["task_count"] == 1
     assert result["exported_count"] == 1
-    assert result["skipped_count"] == 1
+    assert result["skipped_count"] == 0
     assert client.list_calls == [
         {
             "page": 1,
@@ -142,11 +142,11 @@ def test_export_patents_to_zip_writes_manifest_and_exports_done_tasks(tmp_path: 
         assert not any("生物活性" in name for name in names)
         manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
         assert manifest["exported_count"] == 1
-        assert manifest["skipped_count"] == 1
+        assert manifest["skipped_count"] == 0
         assert manifest["tasks"][0]["metadata"]["remarks"] == "Priority"
         assert manifest["tasks"][0]["metadata"]["file_name"] == "WO2022233302 - 生物活性"
         assert manifest["tasks"][0]["exported_file"] == "exports/101-bioactivity.csv"
-        assert manifest["tasks"][1]["reason"] == "status=Queueing"
+        assert len(manifest["tasks"]) == 1
         assert archive.read("exports/101-bioactivity.csv").decode("utf-8").replace("\r\n", "\n") == "id,value\n1,ok\n"
 
 

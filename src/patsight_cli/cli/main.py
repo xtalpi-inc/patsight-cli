@@ -476,6 +476,7 @@ def cmd_patent_list(args: argparse.Namespace) -> None:
     ):
         response = apply_patent_filters(
             response,
+            folder_id=args.folder_id,
             remark=args.remark,
             creator_email=args.creator_email,
             unfiled=args.unfiled,
@@ -977,7 +978,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_patent_list.add_argument(
         "--remark",
         default=None,
-        help="Client-side filter: remark text contains this keyword",
+        help="Client-side filter: remark text must exactly match (case-insensitive, trimmed)",
     )
     p_patent_list.add_argument(
         "--creator-email",
@@ -1041,7 +1042,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_patent_export.add_argument("--searched-smiles", default=None, help="SMILES search filter")
     p_patent_export.add_argument("--view", type=int, default=None, help="Optional environment view")
     p_patent_export.add_argument("--exclude-action", default=None, help="Backend exclude_action filter")
-    p_patent_export.add_argument("--remark", default=None, help="Client-side filter: remark contains keyword")
+    p_patent_export.add_argument(
+        "--remark",
+        default=None,
+        help="Client-side filter: remark text must exactly match (case-insensitive, trimmed)",
+    )
     p_patent_export.add_argument("--creator-email", default=None, help="Client-side filter: patent owner email")
     p_patent_export.add_argument("--unfiled", action="store_true", help="Client-side filter: no folders")
     p_patent_export.add_argument("--multi-folder", action="store_true", help="Client-side filter: more than one folder")
